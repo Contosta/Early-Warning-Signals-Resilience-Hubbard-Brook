@@ -4,7 +4,12 @@
 
 #This script calculates trends over time for early warning signals 
 #(standard deviation, autocorrelation, skewness, and kurtosis)
-#calculated from detrended data to examine changing ecological resilience
+#calculated from detrended data to examine changing ecological resilience.
+
+#Input data are calculated early warning signals located in the Early Warning Signals Tables folder. Outputs are
+#results from Mann-Kendall analysis of change over time and are written as two tables. alltrends.csv is in long format and is an
+#input for further analysis in the the HB-Synthesis script. tabs2.csv is in wide format and is the basis for
+#Table S2 in the manuscript. Both output tables are written to the EWS Summary Tables folder.
 
 #code developed by A Contosta
 #most recent version 4/6/2022
@@ -196,12 +201,13 @@ varnames = data.frame(matrix(vector(), nrow = 31, ncol = 2))
 names(varnames) = c("vars", "nums")
 
 #create vector with variable names in the order you want them to appear in tabs2
-varnames$vars = c("annamre", "annbtbw", "annbtgw", "annlefl", "annoven", "annrevi",
-          "lepyear", "FAGR", "ACSA", "BIOC", "BION",
+varnames$vars = c(
           "ws1_volwt_Ca", "ws2_volwt_Ca", "ws4_volwt_Ca", "ws5_volwt_Ca", "ws6_volwt_Ca", 
           "ws1_flux_Ca", "ws2_flux_Ca",  "ws4_flux_Ca", "ws5_flux_Ca", "ws6_flux_Ca",
           "ws1_volwt_NO3", "ws2_volwt_NO3", "ws4_volwt_NO3", "ws5_volwt_NO3", "ws6_volwt_NO3", 
-          "ws1_flux_NO3", "ws2_flux_NO3",  "ws4_flux_NO3", "ws5_flux_NO3", "ws6_flux_NO3")
+          "ws1_flux_NO3", "ws2_flux_NO3",  "ws4_flux_NO3", "ws5_flux_NO3", "ws6_flux_NO3",
+          "BIOC", "BION", "FAGR", "ACSA", "lepyear",
+          "annamre", "annbtbw", "annbtgw", "annlefl", "annoven", "annrevi")
 
 
 #add index number for ordering response variables as they will appear in supplemental table

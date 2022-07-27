@@ -2,10 +2,23 @@
 ################################################################################################################
 ################################################################################################################
 
-#This script summarizes change over time in in ecological resilience using early warning signals metrics
+#This script summarizes how early warning signals change over time and as a function of disturbance drivers. 
+#It contains most of the code for producing many of the figures and tables presented in the manuscript
+
+#Inputs include hypothesized drivers of climate, precipitation chemistry, and two climate oscillation indices located in the 
+#Original Data folder. Inputs also include early warning signals as response variables, both calculated early
+#warning signals for each response variable from the Early Warning Signals Tables folder and trends over time 
+#in early warning signals (alltrends.csv) in the EWS Summary Tables folder. 
+
+#Outputs include Figure_2, Figure_3, Figure_5, FigureS2, Figure_S3, and Figure_S5 in the manuscript, which are
+#written to the EWS Summary Figures folder. Outputs also consist of Kendall's Tau and associated p-values
+#that compare early warning signals to hypothesized drivers (EWS_regtab) that forms the basis of Tables S3-S6, as
+#well as p- and r2 values derived by fitting hypothesized drivers onto nonmetric multidimensional scaling 
+#(NMDS) ordinations of early warning signals. Both output tables are located in the EWS Summary Tables folder.
+
 
 #code developed by A Contosta
-#most recent version 07/05/22 
+#most recent version 07/25/22 
 
 #changes include code editing and cleaning in preparation for submitting manuscript revisions for peer review
 

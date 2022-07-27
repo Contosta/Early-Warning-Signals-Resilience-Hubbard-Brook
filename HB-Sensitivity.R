@@ -2,8 +2,21 @@
 ################################################################################################################
 ################################################################################################################
 
-#This script performs sensitivity analysis on EWS, examining Kendall's tau and p-value statistics
-#for different window lengths and smoothing bandwiths using the earlywarnings package
+#This script performs sensitivity analysis on EWS, examining Kendall's tau and p-value statistics for change over time
+#for different window lengths and smoothing bandwiths using the earlywarnings package.
+
+#Data inputs are from the Preprocessed Data folder. 
+
+#Outputs include diagnostic plots and related tables of Kendall's Tau and p-values that result from 
+#using different smoothing bandwiths for detrending data and different window lengths for calculating 
+#early warning signals.
+
+#Outputs also include Figure_S4, which shows the distribution of p-values for change over time for each of four 
+#early warning signals (standard deviation, autocorrelation, skewness, and kurtosis) over five possible bandwiths 
+#for smoothing and detrending the data and over five possible sliding windows for calculating early warning signals 
+
+#Data outputs are in the Sensitivity Analysis Figures and Sensitivity Analysis Tables folders for the results 
+#of the sensivitiy analyses and in the EWS Summary Figures for Figure S4.  
 
 #code developed by Dakos et al. (2015) and adapted by A Contosta
 #most recent version 2/16/2022
