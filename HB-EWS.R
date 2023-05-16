@@ -5,6 +5,9 @@
 #This script calculates generic early warning signals using the earlywarnings package
 #on data from the Hubbard Brook Experimental Forest to examine changes in ecological resilience.
 
+#Data inputs are preprocessed data located in the Preprocessed Data folder. Data outputs are figures and associated 
+#tables of generic early warning signals. Outputs are located in the Early Warning Signals Figures and Early Warning Tables folders.
+
 #code developed by Dakos et al. (2015) and adapted by A Contosta
 #most recent version 5/16/2022
 
