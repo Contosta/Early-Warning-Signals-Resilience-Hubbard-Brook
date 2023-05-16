@@ -6,7 +6,7 @@
 #at Hubbard Brook Experimental Forest, New Hampshire, USA.
 
 #code developed by A Contosta
-#most recent version 7/5/2022
+#most recent version 5/16/2022
 
 #changes include code editing and cleaning in preparation for submitting manuscript revisions for peer review
 
