@@ -8,11 +8,13 @@
 
 #Input data are calculated early warning signals located in the Early Warning Signals Tables folder. Outputs are
 #results from Mann-Kendall analysis of change over time and are written as two tables. alltrends.csv is in long format and is an
-#input for further analysis in the the HB-Synthesis script. tabs2.csv is in wide format and is the basis for
+#input for further analysis in the HB-Synthesis script. tabs2.csv is in wide format and is the basis for
 #Table S2 in the manuscript. Both output tables are written to the EWS Summary Tables folder.
 
 #code developed by A Contosta
-#most recent version 4/6/2022
+#most recent version 5/16/2023
+
+#changes include code editing and cleaning in preparation for submitting manuscript revisions for peer review
 
 ################################################################################################################
 ################################################################################################################
