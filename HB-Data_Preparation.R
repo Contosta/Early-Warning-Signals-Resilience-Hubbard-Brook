@@ -5,6 +5,9 @@
 #This script does initial data processing for early warning signals analysis of changing ecological resilience
 #at Hubbard Brook Experimental Forest, New Hampshire, USA.
 
+#Data inputs are from the Original Data folder. Data outputs are preprocessed data that have been reformatted so that 
+#all data sources are aggregated at annual timesteps. They are located in the Preprocessed Data folder.
+
 #code developed by A Contosta
 #most recent version 5/16/2022
 
