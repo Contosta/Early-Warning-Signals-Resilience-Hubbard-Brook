@@ -11,15 +11,17 @@
 #using different smoothing bandwiths for detrending data and different window lengths for calculating 
 #early warning signals.
 
-#Outputs also include Figure_S4, which shows the distribution of p-values for change over time for each of four 
+#Outputs also include Figure_S3, which shows the distribution of p-values for change over time for each of four 
 #early warning signals (standard deviation, autocorrelation, skewness, and kurtosis) over five possible bandwiths 
 #for smoothing and detrending the data and over five possible sliding windows for calculating early warning signals 
 
 #Data outputs are in the Sensitivity Analysis Figures and Sensitivity Analysis Tables folders for the results 
-#of the sensivitiy analyses and in the EWS Summary Figures for Figure S4.  
+#of the sensivitiy analyses and in the EWS Summary Figures for Figure S3.  
 
 #code developed by Dakos et al. (2015) and adapted by A Contosta
-#most recent version 2/16/2022
+#most recent version 5/16/2022
+
+#changes include code editing and cleaning in preparation for submitting manuscript revisions for peer review
 
 ################################################################################################################
 ################################################################################################################
@@ -2356,7 +2358,7 @@ allkt$li2 = factor(allkt$li2, levels = c("A", "B", "C", "D"),
 pdf.options(width= 6.5, height= 4.5, paper="letter", pointsize=10)
 
 #name pdf export file
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\EWS Summary Figures\\Figure_S4.pdf")
+pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\EWS Summary Figures\\Figure_S3.pdf")
 
 plotkt = ggplot(allkt, aes(x = Duration))+
   geom_density(alpha = 0.5)+
