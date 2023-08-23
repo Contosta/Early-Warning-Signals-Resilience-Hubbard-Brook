@@ -26,45 +26,57 @@
 ################################################################################################################
 
 
+################################################################################################################
+################################################################################################################
+################################################################################################################
 #Initial set-up
 
 #call libraries
-library(dplyr)
+library(cowplot)
+library(data.table)
+library(ggpattern)
 library(ggplot2)
-library(earlywarnings)
-library(reshape2)
+library(ggpubr)
+library(grid)
+library(gridExtra)
+library(gtable)
+library(Kendall)
+library(mblm)
+library(psych)
+library(stringr)
+library(vegan)
+library(viridis)
 
-#set working directory and import files
+#set working directory 
+setwd("C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience")
+
+##########################
+#read in driver variables#
+##########################
+
+#climate
+clim = read.table("Preprocessed Data\\anclim.csv", head = T, sep = ",")
+
+#precipitation chemistry
+ws6prcp = read.table("Preprocessed Data\\ws6annual.csv", head = T, sep = ",")
+
+
+#######################################
+#read in climate osciallation indices#
+#NAO, SOI. and AMO                   #
+######################################
+
+nao = read.table("Original Data\\NAO.csv", head = T, sep = ",")
+soi = read.table("Original Data\\SOI.csv", head = T, sep = ",")
+amo = read.table("Original Data\\AMO.csv", head = T, sep = ",")
+
+############################
+#read in response variables#
+############################
+
+#read in concentrations and fluxes of Ca and NO3 for making phase state plots
+
 setwd("C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Preprocessed Data")
-
-#############################################
-#bird abundance, lepidopteran biomass,      #
-#microbial biomass,                         #
-#and basal area increment                   #
-#############################################
-
-#bird abundance. annamre = annual american redstart; annbtbw = annual black-throated blue warbler; 
-#annbtgw = annual black-throated green warbler; annlefl = annual least flycatcher;
-#annoven = annual ovenbird; annrevi = annual red-eyed vireo
-annamre = read.table("annamre.csv", head = T, sep = ",")
-annbtbw = read.table("annbtbw.csv", head = T, sep = ",")
-annbtgw = read.table("annbtgw.csv", head = T, sep = ",")
-annlefl = read.table("annlefl.csv", head = T, sep = ",")
-annoven = read.table("annoven.csv", head = T, sep = ",")
-annrevi = read.table("annrevi.csv", head = T, sep = ",")
-
-#lepidopteran biomass
-lepyear = read.table("lepyear.csv", head = T, sep = ",")
-
-#microbial biomass
-micyear = read.table("micyear.csv", head = T, sep = ",")
-
-#basal area increment
-baiyear = read.table("tcor.csv", head = T, sep = ",")
-
-##################
-#stream chemistry#
-##################
 
 #call the concentration files
 ws1_volwt =  read.table("ws1_volwt.csv", head = T, sep = ",", na.strings = c("NA", "-888.888"))
@@ -80,1123 +92,2018 @@ ws4_flux =  read.table("ws4_flux.csv", head = T, sep = ",")
 ws5_flux =  read.table("ws5_flux.csv", head = T, sep = ",")
 ws6_flux =  read.table("ws6_flux.csv", head = T, sep = ",")
 
-################################################################################################################
-################################################################################################################
-################################################################################################################
 
-#####################################
-#####################################
-#bird abundance                     #
-#####################################
-#####################################
+#read in files, create new column identifying response variable, and combine into single dataframe
 
-######
-#AMRE#
-######
+setwd("C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables")
 
-#add column with timeindex for merging with generic_ews output
-annamre$timeindex = c(1:nrow(annamre))
+#call file names in Early Warning Signals Tables subdirectory
+files.dat = list.files(path = ".", full.names = F)
 
-#subset to include just year and time index
-annamre.sub = annamre[, c("year", "timeindex")]
+#make empty data frame for pasting files
+dat.all = data.frame(matrix(vector(), nrow = 1, ncol = 11))
+names(dat.all) = c("timeindex", "Year", "ar1", "sd", "sk", "kurt", "cv", "returnrate",
+                   "densratio", "acf1", "var")
+
+
+#loop through stations in files.ews
+for(i in 1:length(files.dat)){
   
+  #split file name
+  var.name = data.frame(do.call(rbind, str_split(files.dat, "_EWS.csv")))
+  names(var.name) = c("var", "blank")
+  
+  #read in file
+  dat = read.table(files.dat[i], header = T, sep = ",")
+  
+  #extract state variable from file name
+  dat$var = var.name$var[i]
+  
+  names(dat) = c("timeindex", "Year", "ar1", "sd", "sk", "kurt", "cv", "returnrate",
+                     "densratio", "acf1", "var")
+  #bind files together
+  dat.all = rbind(dat.all, dat)
+  
+}
+
+#remove first row (all NAs)
+dat.all = dat.all[-1, ]
+
+#change wd
+setwd("C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience")
+
+#call all.trends table with results of trend analysis
+all.trends = read.table("EWS Summary Tables\\alltrends.csv", head = T, sep = ",")
+
+###############################################################
+#adjust p-values and flag significance and direction of trends#
+###############################################################
+
+#adjust p-values to control for false-discovery rate
+all.trends$padj = p.adjust(all.trends$pval, method = "fdr")
+
+#flag adj pvalues that are significant
+#when alpha = 0.05
+all.trends$sig = ifelse(all.trends$padj <= 0.05, 1, 0)
+
+#flag ews that are increasing
+all.trends$posdir = ifelse(all.trends$tau > 0, 1, 0)
+
+#flag ews that are decreasing
+all.trends$negdir = ifelse(all.trends$tau < 0, 1, 0)
+
+#flag where adj pvalues are significant AND trends are increasing
+all.trends$sigposdir = ifelse(all.trends$padj <= 0.05 & all.trends$tau > 0, 1, 0)
+
+#flag where adjpvalues are significant AND taus are decreasing
+all.trends$signegdir = ifelse(all.trends$padj <= 0.05 & all.trends$tau < 0, 1, 0)
+
+#make column indicating whether ews is related to critical slowing down or flickering
+all.trends$cat = ifelse(all.trends$ews == "sd" | all.trends$ews == "ar1", "csd", "flk")
+
+#make column that combines variable with ews type (csd or flk)
+all.trends$id = paste(all.trends$var, all.trends$cat)
+
+#summarize by variable and category combination
+all.trends.1 = data.table(all.trends)
+
+trendsum = all.trends.1[ , list(var = unique(var),
+                              cat = unique(cat),
+                              sig = sum(sig, na.rm = T), 
+                              posdir = sum(posdir, na.rm = T),
+                              negdir = sum(negdir, na.rm = T),
+                              sigposdir = sum(sigposdir, na.rm = T),
+                              signegdir = sum(signegdir, na.rm = T)), by = id]
+
+
+#assign ews behavior according to conceptual model
+
+trendsum$ews = ifelse(trendsum$sigposdir == 2, 1, 0)
+trendsum$ewsamb = ifelse(trendsum$sigposdir == 1 & (trendsum$signegdir == 1 | trendsum$signegdir == 0), 1, 0)
+trendsum$ewsoth = ifelse(trendsum$signegdir == 2 | (trendsum$signegdir == 1 & trendsum$sigposdir == 0), 1, 0)
+trendsum$ewsnt = ifelse(trendsum$sigposdir == 0 & trendsum$signegdir == 0, 1, 0)
+
+#add column to delineate variables into ecosystem attributes
+trendsum$ecos = ifelse(trendsum$var == "annamre" | trendsum$var == "annbtbw" | trendsum$var =="annbtgw"  |
+                       trendsum$var == "annlefl" | trendsum$var == "annoven" | trendsum$var == "annrevi", "bird",
+                     ifelse(trendsum$var == "lepyear", "bug",
+                            ifelse(trendsum$var == "ACSA" | trendsum$var == "FAGR", "bai",
+                                   ifelse(trendsum$var == "BIOC" | trendsum$var == "BION", "mic",
+                                          ifelse(trendsum$var == "ws1_volwt_Ca" | trendsum$var == "ws2_volwt_Ca" | trendsum$var == "ws4_volwt_Ca" |
+                                                   trendsum$var == "ws5_volwt_Ca" | trendsum$var == "ws6_volwt_Ca" |
+                                                   trendsum$var == "ws1_flux_Ca" | trendsum$var == "ws2_flux_Ca" | trendsum$var == "ws4_flux_Ca" |
+                                                            trendsum$var == "ws5_flux_Ca" | trendsum$var == "ws6_flux_Ca", "calcium",
+                                                 ifelse(trendsum$var == "ws1_volwt_NO3" | trendsum$var == "ws2_volwt_NO3" | trendsum$var == "ws4_volwt_NO3" |
+                                                          trendsum$var == "ws5_volwt_NO3" | trendsum$var == "ws6_volwt_NO3" |
+                                                               trendsum$var == "ws1_flux_NO3" | trendsum$var == "ws2_flux_NO3" | trendsum$var == "ws4_flux_NO3" |
+                                                                        trendsum$var == "ws5_flux_NO3" | trendsum$var == "ws6_flux_NO3", "nitrate",
+                                                                      NA))))))
+
+#make ID column that combines ecosystem state variables with EWS category
+trendsum$ecosid = paste(trendsum$ecos, trendsum$cat)
+
+#calculate proportion of trends within each ecosystem state variable that show critical slowing down,
+#critical slowing down ambiguous, flickering, flickering ambiguous, and other
+ecosum.1 = trendsum[ , list(cat = unique(cat),
+                          ecos = unique(ecos),
+                          numecos = length(ecos),
+                          ews = sum(ews),
+                          ewsamb = sum(ewsamb),
+                          ewsoth = sum(ewsoth),
+                          ewsnt = sum(ewsnt)), 
+                   by = ecosid]
+
+#calculate proportion of trends across all variables that show critical slowing down,
+#critical slowing down ambiguous, flickering, flickering ambiguous, and other
+ecoall = trendsum[ , list(ecos = "all",
+                          numecos = length(ecos),
+                          ews = sum(ews),
+                          ewsamb = sum(ewsamb),
+                          ewsoth = sum(ewsoth),
+                          ewsnt = sum(ewsnt)), 
+                   by = cat]
+
+#combine rows for ecosum.1 and ecoall
+ecosum = rbind(ecosum.1[ , -1], ecoall)
+
+#reformat dataframe for plotting
+ecoews = ecosum[ , c("cat", "ecos", "numecos", "ews")]
+
+#create separate dataframes for trend categories as defined by conceptual model
+ecoamb = ecosum[ , c("cat", "ecos", "numecos", "ewsamb")]
+names(ecoamb) = c("cat", "ecos", "numecos", "ews")
+ecoamb$cat = ifelse(ecoamb$cat == "csd", "csdamb", "flkamb")
+
+ecooth = ecosum[ , c("cat", "ecos", "numecos", "ewsoth")]
+names(ecooth) = c("cat", "ecos", "numecos", "ews")
+ecooth$cat = "other"
+
+econt = ecosum[ , c("cat", "ecos", "numecos", "ewsnt")]
+names(econt) = c("cat", "ecos", "numecos", "ews")
+econt$cat = "notr"
+
+#rbind dataframes together
+ewscat = rbind(ecoews, ecoamb, ecooth, econt)
+
+#calculate percentages
+ewscat$relper = ewscat$ews / ewscat$numecos
+
+################################################################################################################
+################################################################################################################
+################################################################################################################
+#plot relative proportion of ews temporal behavior for each ecosystem state variable 
+
+#make new names for ecosystem state variables for plotting
+#solute concentration, solute flux, soil microbial biomass, basal area increment, lepidopteran larval
+#biomass, migratory bird abundance, all 
+stvar = c("All", "Stream Calcium", "Stream Nitrate", "Soil Microbial Biomass", 
+          "Basal Area Increment", "Lepidopteran Larval Biomass", 
+          "Migratory Bird Abundance")
+
+
+#make new trend category names for plotting
+ewtype = c("Critical Slowing Down", "Critical Slowing Down Ambiguous", "Flickering", "Flickering Ambiguous",
+        "Recovery", "Stable")
+
+#create an empty dataframe for adding ecosystem state variable and trend category names
+dfews = data.frame(matrix(vector(), nrow = length(stvar) * length(ewtype), ncol = 2))
+names(dfews) = c("stvar", "ewtype")
+
+#populate dataframe with ecosystem state variable and trend category names
+dfews$stvar = rep(stvar, each = length(ewtype))
+dfews$ewtype = ewtype
+
+#populata dataframe with state variable and trend category names as the appear in ewcat
+dfews$var = rep(c("all", "calcium", "nitrate", "mic", "bai", "bug", "bird"), each = length(ewtype))
+dfews$cat = c("csd", "csdamb", "flk", "flkamb", "other", "notr")
+
+#factorize and relevel ecosystem state variables and early warning signals categories so they
+#show up in the right order on the plot
+dfews$stvar = factor(dfews$stvar , levels = unique(dfews$stvar ), 
+                    labels =  unique(dfews$stvar))
+dfews$ewtype = factor(dfews$ewtype , levels = unique(dfews$ewtype ), 
+                     labels =  unique(dfews$ewtype))
+
+#create id columns for dfews and ewacat for merging dataframes
+dfews$id = paste(dfews$var, dfews$cat)
+ewscat$id = paste(ewscat$ecos, ewscat$cat)
+
+#merge ewscat with dfews by id variable
+ewscatdf1 = merge(ewscat, dfews, by = "id")
+
+#add up total occurences within each ewstype and stvar combination for plotting
+ewscatdf = ewscatdf1[ , list(ewtype = unique(ewtype),
+                             stvar = unique(stvar),
+                             ews = sum(ews)), by = id]
+
+#create new ews category for plotting
+ewscatdf$ewtype_2 = ifelse(ewscatdf$ewtype == "Critical Slowing Down Ambiguous" | 
+                             ewscatdf$ewtype == "Critical Slowing Down" , "Critical Slowing Down",
+                           ifelse(ewscatdf$ewtype == "Flickering Ambiguous" | 
+                              ewscatdf$ewtype == "Flickering", "Flickering",
+                              ifelse(ewscatdf$ewtype == "Stable", "Stable",
+                                     ifelse(ewscatdf$ewtype == "Recovery", "Recovery",
+                           ewscatdf$ewtype))))
+
+#create new ambiguous category for plotting (so that they appear in the order we want in the legend)
+ewscatdf$amb = ifelse(ewscatdf$ewtype == "Critical Slowing Down Ambiguous" | 
+                             ewscatdf$ewtype == "Flickering Ambiguous" , 
+                            "B", "A")
+
+
+###################################################
+#Make Figure 3 and export
+###################################################
+
 #call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
+pdf.options(width= 6.5, height= 4.5, paper="letter", pointsize=10)
 
 #name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_annamre.pdf")
-
-annamre.ews = generic_ews(annamre$totbird, winsize = 50, detrending = "gaussian",
-                          bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge annamre.ews output with actual years in timeseries
-annamre.ewst = merge(annamre.sub, annamre.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(annamre.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\annamre_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-######
-#BTBW#
-######
-
-#add column with timeindex for merging with generic_ews output
-annbtbw$timeindex = c(1:nrow(annbtbw))
-
-#subset to include just year and time index
-annbtbw.sub = annbtbw[, c("year", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_annbtbw.pdf")
-
-annbtbw.ews = generic_ews(annbtbw$totbird, winsize = 50, detrending = "gaussian",
-                          bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge annbtbw.ews output with actual years in timeseries
-annbtbw.ewst = merge(annbtbw.sub, annbtbw.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(annbtbw.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\annbtbw_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-######
-#BTGW#
-######
-
-#add column with timeindex for merging with generic_ews output
-annbtgw$timeindex = c(1:nrow(annbtgw))
-
-#subset to include just year and time index
-annbtgw.sub = annbtgw[, c("year", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_annbtgw.pdf")
-
-annbtgw.ews = generic_ews(annbtgw$totbird, winsize = 50, detrending = "gaussian",
-                          bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge annbtgw.ews output with actual years in timeseries
-annbtgw.ewst = merge(annbtgw.sub, annbtgw.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(annbtgw.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\annbtgw_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-######
-#LEFL#
-######
-
-#add column with timeindex for merging with generic_ews output
-annlefl$timeindex = c(1:nrow(annlefl))
-
-#subset to include just year and time index
-annlefl.sub = annlefl[, c("year", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_annlefl.pdf")
-
-annlefl.ews = generic_ews(annlefl$totbird, winsize = 50, detrending = "gaussian",
-                          bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge annlefl.ews output with actual years in timeseries
-annlefl.ewst = merge(annlefl.sub, annlefl.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(annlefl.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\annlefl_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-######
-#OVEN#
-######
-
-#add column with timeindex for merging with generic_ews output
-annoven$timeindex = c(1:nrow(annoven))
-
-#subset to include just year and time index
-annoven.sub = annoven[, c("year", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_annoven.pdf")
-
-annoven.ews = generic_ews(annoven$totbird, winsize = 50, detrending = "gaussian",
-                          bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge annoven.ews output with actual years in timeseries
-annoven.ewst = merge(annoven.sub, annoven.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(annoven.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\annoven_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-######
-#REVI#
-######
-
-#add column with timeindex for merging with generic_ews output
-annrevi$timeindex = c(1:nrow(annrevi))
-
-#subset to include just year and time index
-annrevi.sub = annrevi[, c("year", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_annrevi.pdf")
-
-annrevi.ews = generic_ews(annrevi$totbird, winsize = 50, detrending = "gaussian",
-                          bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge annrevi.ews output with actual years in timeseries
-annrevi.ewst = merge(annrevi.sub, annrevi.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(annrevi.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\annrevi_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#####################################
-#####################################
-#lepidopteran biomass               #
-#####################################
-#####################################
-
-#add column with timeindex for merging with generic_ews output
-lepyear$timeindex = c(1:nrow(lepyear))
-
-#subset to include just year and time index
-lepyear.sub = lepyear[, c("Year", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_lepyear.pdf")
-
-lepyear.ews = generic_ews(lepyear$biomass, winsize = 50, detrending = "gaussian",
-                          bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge lepyear.ews output with actual years in timeseries
-lepyear.ewst = merge(lepyear.sub, lepyear.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(lepyear.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\lepyear_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-#####################################
-#####################################
-#Microbial Biomass                  #
-#####################################
-#####################################
+pdf(file= "EWS Summary Figures\\Figure_3.pdf")
+
+ggplot(ewscatdf, aes(fill = ewtype_2, pattern = amb, y = stvar, x = ews)) + 
+  geom_bar(position="fill", stat="identity", colour = "black")+
+  scale_fill_manual(values = c("#FDE725FF", 
+                               "#85D54AFF",
+                               "#38598CFF",
+                               "#440154FF"))+
+  geom_bar_pattern(position = "fill", stat = "identity",
+                   pattern_fill = "black",
+                   pattern_color = "black",
+                   colour = "black",
+                   pattern_angle = 45,
+                   pattern_density = 0.02,
+                   pattern_spacing = 0.02,
+                   pattern_key_scale_factor = 0.6) +
+  scale_pattern_manual(values = c("B" = "circle", "A" = "none"),
+                       labels = c("Coherent", "Ambiguous")) +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  theme(legend.position = "bottom")+
+  theme(legend.box = "vertical", legend.box.just = "left")+
+  guides(fill = guide_legend(order = 2, title = "Early Warning Signal Trend", title.position = "top",
+                             reverse = T, override.aes = list(pattern = "none")),
+    pattern = guide_legend(title = "Early Warning Signal Coherence", title.position = "top", 
+                           override.aes = list(fill = "white")))+
+  labs(x = "Proportion", y = "Ecosystem State Variable")
+
+dev.off()
+
+
+################################################################################################################
+################################################################################################################
+################################################################################################################
+
+#Plot change over time in EWS
+
+###########################################
+#format dat.all to prepare it for graphing#
+###########################################
+
+#add column to delineate variables into groups
+dat.all$cat = ifelse(dat.all$var == "annamre" | dat.all$var == "annbtbw" | dat.all$var =="annbtgw"  |
+                       dat.all$var == "annlefl" | dat.all$var == "annoven" | dat.all$var == "annrevi", "bird",
+                       ifelse(dat.all$var == "lepyear", "bug",
+                            ifelse(dat.all$var == "ACSA" | dat.all$var == "FAGR", "bai",
+                                   ifelse(dat.all$var == "BIOC" | dat.all$var == "BION", "mic",
+                                          ifelse(dat.all$var == "ws1_volwt_Ca" | dat.all$var == "ws2_volwt_Ca" | dat.all$var == "ws4_volwt_Ca" |
+                                                   dat.all$var == "ws5_volwt_Ca" | dat.all$var == "ws6_volwt_Ca", "volwt_Ca",
+                                                 ifelse(dat.all$var == "ws1_volwt_NO3" | dat.all$var == "ws2_volwt_NO3" | dat.all$var == "ws4_volwt_NO3" |
+                                                          dat.all$var == "ws5_volwt_NO3" | dat.all$var == "ws6_volwt_NO3", "volwt_NO3",
+                                                        ifelse(dat.all$var == "ws1_flux_Ca" | dat.all$var == "ws2_flux_Ca" | dat.all$var == "ws4_flux_Ca" |
+                                                                 dat.all$var == "ws5_flux_Ca" | dat.all$var == "ws6_flux_Ca", "flux_Ca",
+                                                               ifelse(dat.all$var == "ws1_flux_NO3" | dat.all$var == "ws2_flux_NO3" | dat.all$var == "ws4_flux_NO3" |
+                                                                        dat.all$var == "ws5_flux_NO3" | dat.all$var == "ws6_flux_NO3", "flux_NO3",
+                                                   NA))))))))
+  
+#subset to only include columns used in plotting
+dat.sub = dat.all[ , c("cat", "var", "Year", "sd", "ar1", "sk", "kurt")]
+names(dat.sub) = c("cat", "var", "Year", "sd", "ac", "sk", "kt")
+
+##############################
+##############################
+#Make Figure 2 for Manuscript#
+##############################
+##############################
+
+#note that the figure has 16 panels
+#the process consists of
+#making individual panels with data
+#making dummy panels for customizing the legend
+#extracting legend parameters
+#arranging panels into grid for plotting
+#plotting grid with panels and legend and export to folder
 
 #####################
-#Microbial Biomass C#
+#make Ca_volwt plots#
 #####################
 
-#add column with timeindex for merging with generic_ews output
-micyear$timeindex = c(1:nrow(micyear))
+#subset dat.sub to include just Ca_volwt data 
+dat.Ca_volwt = dat.sub[dat.sub$cat == "volwt_Ca", ]
 
-#subset to include just year and time index
-BIOC.sub = micyear[, c("Year", "timeindex")]
+Ca_volwt.sd.plot = ggplot(data = dat.Ca_volwt, aes(x = Year, y= sd, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = " ", y = "Standard Deviation") +
+  theme(plot.margin = margin(0.1, 0.4, 0, -10))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  theme(legend.position = "none") +
+  scale_y_continuous(
+    labels = c("0.0", "0.1", "0.2"), breaks = c(0, 0.1, 0.2)) +
+  scale_size_manual(values = c(1.5,1.5,1.5,1.5,1.5)) +
+  scale_linetype_manual(values = c(1,1,1,2,2), labels = c("WS1", "WS2", "WS4", "WS5", "WS6"))+
+  scale_colour_manual(values = c("firebrick1", "deepskyblue1", "olivedrab3", 
+                                 "mediumpurple", "goldenrod2"),
+                      labels = c("WS1", "WS2", "WS4", "WS5", "WS6"), guide = guide_legend(ncol = 1))+
+  annotate("text", x = (min(dat.Ca_volwt[is.na(dat.Ca_volwt$var) == F, ]$Year) - 1), y = (0.98 * max(dat.Ca_volwt$sd, na.rm = T)), 
+           label = "a", fontface = "bold")
+
+Ca_volwt.ac.plot = ggplot(data = dat.Ca_volwt, aes(x = Year, y= ac, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = " ", y = "Autocorrelation") +
+  theme(plot.margin = margin(0.1, 0.4, 0, -10))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  theme(legend.position = "none") +
+  scale_y_continuous(
+    labels = c("0.3", "0.6", "0.9"), breaks = c(0.3, 0.6, 0.9)) +
+  scale_size_manual(values = c(0.5,1.5,1.5,1.5,1.5)) +
+  scale_linetype_manual(values = c(1,1,1,1,2), labels = c("WS1", "WS2", "WS4", "WS5", "WS6"))+
+  scale_colour_manual(values = c("firebrick1", "deepskyblue1", "olivedrab3", 
+                                 "mediumpurple", "goldenrod2"),
+                      labels = c("WS1", "WS2", "WS4", "WS5", "WS6"), guide = guide_legend(ncol = 1))+
+  annotate("text", x = (min(dat.Ca_volwt[is.na(dat.Ca_volwt$var) == F, ]$Year) - 1), y = 1.01, 
+           label = "b", fontface = "bold")
+
+Ca_volwt.sk.plot = ggplot(data = dat.Ca_volwt, aes(x = Year, y= sk, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = " ", y = "Skewness") +
+  theme(plot.margin = margin(0.1, 0.4, 0, -10))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  theme(legend.position = "none") +
+  scale_y_continuous(
+    labels = c("0.4", "1.2", "2.0"), breaks = c(0.4, 1.2, 2.0)) +
+  scale_size_manual(values = c(0.5,1.5,1.5,1.5,0.5)) +
+  scale_linetype_manual(values = c(1,1,1,1,2), labels = c("WS1", "WS2", "WS4", "WS5", "WS6"))+
+  scale_colour_manual(values = c("firebrick1", "deepskyblue1", "olivedrab3", 
+                                 "mediumpurple", "goldenrod2"),
+                      labels = c("WS1", "WS2", "WS4", "WS5", "WS6"), guide = guide_legend(ncol = 1))+
+  annotate("text", x = (min(dat.Ca_volwt[is.na(dat.Ca_volwt$var) == F, ]$Year) - 1), y = (0.98 * max(dat.Ca_volwt$sk, na.rm = T)), 
+           label = "c", fontface = "bold")
+
+Ca_volwt.kt.plot = ggplot(data = dat.Ca_volwt, aes(x = Year, y= kt, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = "Year", y = "Kurtosis") +
+  theme(plot.margin = margin(0.1, 0.4, -11, -10))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank())+
+  theme(legend.position = "none") +
+  scale_y_continuous(
+    labels = c("3.0", "5.5", "8.0"), breaks = c(3.0, 5.5, 8.0)) +
+  scale_x_continuous(
+    labels = c("1995", "2005", "2015"), breaks = c(1995, 2005, 2015)) +
+  scale_size_manual(values = c(0.5,1.5,0.5,1.5,0.5)) +
+  scale_linetype_manual(values = c(1,1,1,1,2), labels = c("WS1", "WS2", "WS4", "WS5", "WS6"))+
+  scale_colour_manual(values = c("firebrick1", "deepskyblue1", "olivedrab3", 
+                                 "mediumpurple", "goldenrod2"),
+                      labels = c("WS1", "WS2", "WS4", "WS5", "WS6"), guide = guide_legend(ncol = 1))+
+  annotate("text", x = (min(dat.Ca_volwt[is.na(dat.Ca_volwt$var) == F, ]$Year) - 1), y = (0.98 * max(dat.Ca_volwt$kt, na.rm = T)), 
+           label = "d", fontface = "bold")
+
+#####################
+#make NO3_flux plots#
+####################
+
+#subset dat.sub to include just NO3_flux data 
+dat.NO3_flux = dat.sub[dat.sub$cat == "flux_NO3", ]
+
+NO3_flux.sd.plot = ggplot(data = dat.NO3_flux, aes(x = Year, y= sd, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = " ", y = " ") +
+  theme(plot.margin = margin(0.1, 0.4, 0, -15))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  theme(legend.position = "none") +
+  scale_y_continuous(
+    labels = c("3.0", "7.5", "12.0"), breaks = c(3000, 7500, 12000)) +
+  scale_size_manual(values = c(0.5,0.5,1.5,1.5,1.5)) +
+  scale_linetype_manual(values = c(2,2,2,1,2), labels = c("WS1", "WS2", "WS4", "WS5", "WS6"))+
+  scale_colour_manual(values = c("firebrick1", "deepskyblue1", "olivedrab3", 
+                                 "mediumpurple", "goldenrod2"),
+                      labels = c("WS1", "WS2", "WS4", "WS5", "WS6"), guide = guide_legend(ncol = 1))+
+  annotate("text", x = (min(dat.NO3_flux[is.na(dat.NO3_flux$var) == F, ]$Year) + 1), y = 14500, 
+           label = "e", fontface = "bold")
+
+NO3_flux.ac.plot = ggplot(data = dat.NO3_flux, aes(x = Year, y= ac, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = " ", y = " ") +
+  theme(plot.margin = margin(0.1, 0.4, 0, -10))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  theme(legend.position = "none") +
+  scale_y_continuous(
+    labels = c("0.0", "0.3", "0.6"), breaks = c(0, 0.3, 0.6)) +
+  scale_size_manual(values = c(0.5,1.5,1.5,1.5,1.5)) +
+  scale_linetype_manual(values = c(1,2,1,2,2), labels = c("WS1", "WS2", "WS4", "WS5", "WS6"))+
+  scale_colour_manual(values = c("firebrick1", "deepskyblue1", "olivedrab3", 
+                                 "mediumpurple", "goldenrod2"),
+                      labels = c("WS1", "WS2", "WS4", "WS5", "WS6"), guide = guide_legend(ncol = 1))+
+  annotate("text", x = (min(dat.NO3_flux[is.na(dat.NO3_flux$var) == F, ]$Year) - 1), y = (0.98 * max(dat.NO3_flux$ac, na.rm = T)), 
+           label = "f", fontface = "bold")
+
+NO3_flux.sk.plot = ggplot(data = dat.NO3_flux, aes(x = Year, y= sk, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = " ", y = " ") +
+  theme(plot.margin = margin(0.1, 0.4, 0, -10))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  theme(legend.position = "none") +
+  scale_y_continuous(
+    labels = c("1.0", "2.0", "3.0"), breaks = c(1, 2, 3)) +
+  scale_size_manual(values = c(0.5,1.5,1.5,1.5,1.5)) +
+  scale_linetype_manual(values = c(1,1,1,1,1), labels = c("WS1", "WS2", "WS4", "WS5", "WS6"))+
+  scale_colour_manual(values = c("firebrick1", "deepskyblue1", "olivedrab3", 
+                                 "mediumpurple", "goldenrod2"),
+                      labels = c("WS1", "WS2", "WS4", "WS5", "WS6"), guide = guide_legend(ncol = 1))+
+  annotate("text", x = (min(dat.NO3_flux[is.na(dat.NO3_flux$var) == F, ]$Year) - 1), y = (0.98 * max(dat.NO3_flux$sk, na.rm = T)), 
+           label = "g", fontface = "bold")
+
+NO3_flux.kt.plot = ggplot(data = dat.NO3_flux, aes(x = Year, y= kt, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = " ", y = " ") +
+  theme(plot.margin = margin(0.1, 0.4, -11, -15))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank())+
+  theme(legend.position = "none") +
+  scale_y_continuous(
+    labels = c("5.0", "10.0", "15.5"), breaks = c(5, 10, 15)) +
+  scale_x_continuous(
+    labels = c("1995", "2005", "2015"), breaks = c(1995, 2005, 2015)) +
+  scale_size_manual(values = c(1.5,1.5,1.5,1.5,1.5)) +
+  scale_linetype_manual(values = c(2,1,1,1,1), labels = c("WS1", "WS2", "WS4", "WS5", "WS6"))+
+  scale_colour_manual(values = c("firebrick1", "deepskyblue1", "olivedrab3", 
+                                 "mediumpurple", "goldenrod2"),
+                      labels = c("WS1", "WS2", "WS4", "WS5", "WS6"), guide = guide_legend(ncol = 1))+
+  annotate("text", x = (min(dat.NO3_flux[is.na(dat.NO3_flux$var) == F, ]$Year) - 1), y = (0.98 * max(dat.NO3_flux$kt, na.rm = T)), 
+           label = "h", fontface = "bold")
+
+
+#################
+#make bird plots#
+#################
+
+#subset dat.sub to include just bird data for btbw, lefl, and oven
+dat.bird = dat.sub[dat.sub$var == "annbtbw" | dat.sub$var == "annlefl" | dat.sub$var == "annoven", ]
+
+birds.sd.plot = ggplot(data = dat.bird, aes(x = Year, y= sd, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = " ", y = " ") +
+  theme(plot.margin = margin(0.1, 0.4, 0, -10))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  theme(legend.position = "blank") +
+  scale_colour_manual(values = c("dodgerblue4", "darkolivegreen4", "tomato4"),
+                      labels = c("BTBW","LEFL", "OVEN"))+
+  guides(color = guide_legend(ncol=1))+
+  scale_y_continuous(
+    labels = c("1.5", "5.5", "9.5"), breaks = c(1.5, 5.5, 9.5)) +
+  scale_size_manual(values = c(0.5,1.5,1.5)) +
+  scale_linetype_manual(values = c(2,2,1), labels = c("BTBW", "LEFL", "OVEN"))+
+  annotate("text", x = (min(dat.bird[is.na(dat.bird$var) == F, ]$Year) - 1), y = (0.98 * max(dat.bird$sd, na.rm = T)), 
+           label = "i", fontface = "bold")
+
+birds.ac.plot = ggplot(data = dat.bird, aes(x = Year, y= ac, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = " ", y = " ") +
+  theme(plot.margin = margin(0.1, 0.4, 0, -10))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  theme(legend.position = "none") +
+  scale_colour_manual(values = c("dodgerblue4", "darkolivegreen4", "tomato4"),
+                      labels = c("BTBW", "LEFL", "OVEN"))+
+  guides(color = guide_legend(ncol=1))+
+  scale_y_continuous(
+    labels = c("0.2", "0.5", "0.8"), breaks = c(0.2, 0.5, 0.8)) +
+  scale_size_manual(values = c(1.5,0.5,1.5)) +
+  scale_linetype_manual(values = c(1,2,1), labels = c("BTBW", "LEFL", "OVEN"))+
+  annotate("text", x = (min(dat.bird[is.na(dat.bird$var) == F, ]$Year) - 1), y = (0.98 * max(dat.bird$ac, na.rm = T)), 
+           label = "j", fontface = "bold")
+
+birds.sk.plot = ggplot(data = dat.bird, aes(x = Year, y= sk, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = " ", y = " ") +
+  theme(plot.margin = margin(0.1, 0.4, 0, -10))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  theme(legend.position = "none") +
+  scale_colour_manual(values = c("dodgerblue4","darkolivegreen4", "tomato4"),
+                      labels = c("BTBW", "LEFL", "OVEN"))+
+  guides(color = guide_legend(ncol=1))+
+  scale_y_continuous(
+    labels = c("0.3", "0.9", "1.4"), breaks = c(0.3, 0.9, 1.4)) +
+  scale_size_manual(values = c(0.5,1.5,1.5)) +
+  scale_linetype_manual(values = c(1,1,2), labels = c("BTBW", "LEFL", "OVEN"))+
+  annotate("text", x = (min(dat.bird[is.na(dat.bird$var) == F, ]$Year) - 1), y = (0.98 * max(dat.bird$sk, na.rm = T)), 
+           label = "k", fontface = "bold")
+
+birds.kt.plot = ggplot(data = dat.bird, aes(x = Year, y= kt, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = " ", y = " ") +
+  theme(plot.margin = margin(0.1, 0.4, -11, -10))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank())+
+  theme(legend.position = "none") +
+  scale_colour_manual(values = c("dodgerblue4", "darkolivegreen4", "tomato4"),
+                      labels = c("BTBW", "LEFL", "OVEN"))+
+  guides(color = guide_legend(ncol=1))+
+  scale_y_continuous(
+    labels = c("2.0", "4.0", "6.0"), breaks = c(2,4,6)) +
+  scale_x_continuous(
+    labels = c("1992", "2002", "2012"), breaks = c(1992, 2002, 2012),
+    limits = c(min(dat.bird[is.na(dat.bird$var) == F, ]$Year -1, na.rm = T), 
+               max(dat.bird[is.na(dat.bird$var) == F, ]$Year, na.rm = T))) +
+  scale_size_manual(values = c(1.5,0.5,0.5)) +
+  scale_linetype_manual(values = c(1,1,2), labels = c("BTBW", "LEFL", "OVEN"))+
+  annotate("text", x = (min(dat.bird[is.na(dat.bird$var) == F, ]$Year) - 1), y = (0.98 * max(dat.bird$kt, na.rm = T)), 
+           label = "l", fontface = "bold")
+
+#################
+#make bai plots #
+#################
+
+#subset dat.sub to include just bai data 
+dat.bai = dat.sub[dat.sub$cat == "bai", ]
+
+bai.sd.plot = ggplot(data = dat.bai, aes(x = Year, y= sd, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = " ", y = " ") +
+  theme(plot.margin = margin(0.1, 0.4, 0, -10))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  theme(legend.position = "blank") +
+  scale_y_continuous(
+    labels = c("0.7", "1.3", "1.9"), breaks = c(0.7, 1.3, 1.9)) +
+  scale_size_manual(values = c(1.5,0.5)) +
+  scale_linetype_manual(values = c(1,1), labels = c("ACSA", "FAGR"))+
+  scale_colour_manual(values = c("orangered3", "seagreen4"),
+                      labels = c("ACSA", "FAGR"))+
+  annotate("text", x = (min(dat.bai[is.na(dat.bai$var) == F, ]$Year) + 0.5), y = (0.99 * max(dat.bai$sd, na.rm = T)), 
+           label = "m", fontface = "bold")
+
+bai.ac.plot = ggplot(data = dat.bai, aes(x = Year, y= ac, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = " ", y = " ") +
+  theme(plot.margin = margin(0.1, 0.4, 0, -10))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  theme(legend.position = "none") +
+  scale_y_continuous(
+    labels = c("0.0", "0.3", "0.6"), breaks = c(0, 0.3, 0.6)) +
+  scale_size_manual(values = c(0.5,1.5)) +
+  scale_linetype_manual(values = c(1,1), labels = c("ACSA", "FAGR"))+
+  scale_colour_manual(values = c("orangered3", "seagreen4"),
+                      labels = c("Sugar Maple", "American Beech"))+
+  annotate("text", x = (min(dat.bai[is.na(dat.bai$var) == F, ]$Year) - 1), y = (0.98 * max(dat.bai$ac, na.rm = T)), 
+           label = "n", fontface = "bold")
+
+bai.sk.plot = ggplot(data = dat.bai, aes(x = Year, y= sk, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = " ", y = " ") +
+  theme(plot.margin = margin(0.1, 0.4, 0, -10))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())+
+  theme(legend.position = "none") +
+  scale_y_continuous(
+    labels = c("0.2", "0.6", "1.0"), breaks = c(0.2, 0.6, 1.0)) +
+  scale_size_manual(values = c(0.5,1.5)) +
+  scale_linetype_manual(values = c(2,1), labels = c("ACSA", "FAGR"))+
+  scale_colour_manual(values = c("orangered3", "seagreen4"),
+                      labels = c("Sugar Maple", "American Beech"))+
+  annotate("text", x = (min(dat.bai[is.na(dat.bai$var) == F, ]$Year) - 1), y = (0.98 * max(dat.bai$sk, na.rm = T)), 
+           label = "o", fontface = "bold")
+
+bai.kt.plot = ggplot(data = dat.bai, aes(x = Year, y= kt, color = var)) +
+  geom_line(aes(linetype = var, size = var))+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size=0.5))+
+  labs(x = " ", y = " ") +
+  theme(plot.margin = margin(0.1, 0.4, -11, -10))+
+  theme(axis.title.y=element_text(face = "bold"),
+        axis.title.x = element_blank())+
+  theme(legend.position = "none") +
+  scale_y_continuous(
+    labels = c("2.2", "3.2", "4.2"), breaks = c(2.2, 3.2, 4.2)) +
+  scale_x_continuous(
+    labels = c("1985", "1995", "2005"), breaks = c(1985, 1995, 2005)) +
+  scale_size_manual(values = c(0.5,1.5)) +
+  scale_linetype_manual(values = c(2,1), labels = c("ACSA", "FAGR"))+
+  scale_colour_manual(values = c("orangered3", "seagreen4"),
+                      labels = c("Sugar Maple", "American Beech"))+
+  annotate("text", x = (min(dat.bai[is.na(dat.bai$var) == F, ]$Year) - 1), y = (0.98 * max(dat.bai$kt, na.rm = T)), 
+           label = "p", fontface = "bold")
+
+
+############################################################
+#make dummy dataframes and panels                          #    
+#for customizing the legend                                #  
+############################################################
+
+#########################################################
+#make dummy dataframe with all ecosystem state variables#
+#########################################################
+
+vars = c("WS 1",  "WS 2", "WS 4", "WS 5", "WS 6", "NA", "BTBW", "LEFL", "OVEN",  "Sugar Maple", 
+         "American Beech")
+years = c(1960:2010)
+
+df = data.frame(matrix(vector(), nrow = length(vars) * length(years), ncol = 3))
+names(df) = c("vars", "years", "kt")
+
+df$vars = rep(vars, each = length(years))
+df$years = years
+df$kt = runif(length(df)) 
+
+#factorize and relevel the early warning signals names so they
+#show up in the right order on the plot
+df$vars = factor(df$vars, levels = unique(df$vars), 
+                 labels =  unique(df$vars))
+
+#############################################################
+#create dummy dataframe for trend significance and direction#
+#############################################################
+
+tsig = c("Significant Increase", "Significant Decrease", 
+         "Non-Signficant Increase", "Non-Signficant Decrease", "NA", "NA")
+years = c(1960:2010)
+
+dfsig = data.frame(matrix(vector(), nrow = length(tsig) * length(years), ncol = 3))
+names(dfsig) = c("tsig", "years", "kt")
+
+dfsig$tsig = rep(tsig, each = length(years))
+dfsig$years = years
+dfsig$kt = runif(length(tsig)) 
+
+#factorize and relevel the early warning signals names so they
+#show up in the right order on the plot
+dfsig$tsig = factor(dfsig$tsig, levels = unique(dfsig$tsig), 
+                 labels =  unique(dfsig$tsig))
+
+
+###################
+#make dummy panels#
+###################
+
+#make df plot
+df.plot = ggplot(data = df, aes(x = years, y= kt, color = vars))+
+  geom_line(aes(size = vars))+
+  theme(legend.position = "top")+
+  theme(legend.title = element_text(
+    face = "bold"))+
+  theme(legend.key = element_rect(fill = NA, color = NA))+
+  theme(legend.key.width = unit(1, "line")) +
+  scale_colour_manual(name = "Ecosystem State Variable",
+                      values = c("firebrick1", "deepskyblue1", "olivedrab3", 
+                                 "mediumpurple", "goldenrod2", "white",
+                                 "dodgerblue4", "darkolivegreen4", "tomato4", 
+                                 "orangered3", "seagreen4"
+                      ),
+                      labels = c("Watershed 1",  "Watershed 2", "Watershed 4", "Watershed 5", "Watershed 6", " ",
+                                 "Black-Throated Blue Warbler", "Least Flycatcher", "Ovenbird", 
+                                 "Sugar Maple", "American Beech"
+                      ))+
+  scale_size_manual(name = "Ecosystem State Variable", values = rep(1.5, 11), 
+                    labels = c("Watershed 1",  "Watershed 2", "Watershed 4", "Watershed 5", "Watershed 6", " ",
+                               "Black-Throated Blue Warbler", "Least Flycatcher", "Ovenbird", 
+                               "Sugar Maple", "American Beech"))+
+  
+  guides(colour = guide_legend(title.vjust = 1, ncol=2, title.position="top"))
+
+
+#make signficant and direction plot
+dfsig.plot = ggplot(data = dfsig, aes(x = years, y= kt, color = tsig))+
+  geom_line(aes(linetype = tsig, size = tsig))+
+  theme(legend.title = element_text(
+    face = "bold"))+
+  theme(legend.direction = "vertical")+
+  theme(legend.position = "top")+
+  theme(legend.key = element_rect(fill = NA, color = NA))+
+  theme(legend.key.width = unit(5, "line")) +
+  scale_colour_manual(name = "Trend Signficance and Direction",
+                      values = c("gray30", "gray30", "gray30", "gray30", "white", "white"),
+                      labels = c("Significant Increase", "Significant Decrease",
+                                 "Non-Significant Increase", "Non-Significant Decrease", " ", " "))+
+  scale_linetype_manual(name = "Trend Signficance and Direction",
+                        values = c(1,2,1,2,1,1), 
+                        labels = c("Significant Increase", "Significant Decrease",
+                                   "Non-Significant Increase", "Non-Significant Decrease", " ", " "))+
+  scale_size_manual(name = "Trend Signficance and Direction", values = c(1.5, 1.5, 0.5, 0.5, 1.5, 1.5), 
+                    labels = c("Significant Increase", "Significant Decrease",
+                               "Non-Significant Increase", "Non-Significant Decrease", " ", " "))+
+  guides(colour = guide_legend(title.vjust = 1, ncol=1, title.position="top"))
+
+############################################
+#extract legend parameters from dummy plots#
+############################################
+
+# Create user-defined function, which extracts legends from ggplots
+
+extract_df <- function(df.plot) {
+  step1 <- ggplot_gtable(ggplot_build(df.plot))
+  step2 <- which(sapply(step1$grobs, function(x) x$name) == "guide-box")
+  step3 <- step1$grobs[[step2]]
+  return(step3)
+}
+
+
+extract_dfsig <- function(dfsig.plot) {
+  step1 <- ggplot_gtable(ggplot_build(dfsig.plot))
+  step2 <- which(sapply(step1$grobs, function(x) x$name) == "guide-box")
+  step3 <- step1$grobs[[step2]]
+  return(step3)
+}
+
+
+
+# Apply user-defined function to extract legend
+#write function
+extract_legend<-function(ggplot_object){
+  tmp <- ggplot_gtable(ggplot_build(ggplot_object))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  legend
+}
+
+df_legend = extract_legend(df.plot)
+dfsig_legend = extract_legend(dfsig.plot)
+
+##############################################
+#create text grobs for labeling panel columns#
+##############################################
+
+Ca_conc = text_grob("Ca Concentration", face = "bold", hjust = 0.4)
+NO3_flux = text_grob(expression(paste(bold("NO"[3]*" Flux"))), face = "bold", hjust = 0.25)
+bird = text_grob("Bird Abundance", face = "bold", hjust = 0.35)
+bai = text_grob("Basal Area Increment", face = "bold", hjust = 0.45)
+
+########################################
+#arrange panels into grid for plotting #
+#and export to folder                  #
+########################################
+
+#add height onto dfsig_legend so that it aligns with df_legend in plot
+dfsig_legend_2 = gtable_add_rows(dfsig_legend,  unit(0.61, "cm"), pos = -1)
 
 #call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
+pdf.options(width= 6.5, height= 8.5, paper="letter", pointsize=10)
 
 #name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
+pdf(file="EWS Summary Figures\\Figure_2.pdf")
 
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_BIOC.pdf")
+grid.arrange(layout_matrix = 
 
-BIOC.ews = generic_ews(micyear$BIOC, winsize = 50, detrending = "gaussian",
-                          bandwidth = 50, logtransform = F, interpolate = F)
+  arrangeGrob(
+  Ca_conc, NO3_flux, bird, bai, ncol = 4, nrow = 1),
+  
+  arrangeGrob(
+    Ca_volwt.sd.plot, NO3_flux.sd.plot, birds.sd.plot, bai.sd.plot, 
+    Ca_volwt.ac.plot, NO3_flux.ac.plot, birds.ac.plot, bai.ac.plot, 
+    Ca_volwt.sk.plot, NO3_flux.sk.plot, birds.sk.plot, bai.sk.plot, 
+    Ca_volwt.kt.plot, NO3_flux.kt.plot, birds.kt.plot, bai.kt.plot, 
+    ncol = 4, nrow = 4, bottom = text_grob("Year", face = "bold", vjust = 1),
+    padding = unit(1, "cm")), 
+  
+
+  arrangeGrob(df_legend, dfsig_legend_2, 
+              nrow = 1, ncol = 2, as.table = F), 
+  
+  left = text_grob(" ", rot = 90, hjust= -12.5),
+  heights = c(0.5, 10, 3)
+  
+)
+
+dev.off()
+
+##################################################################################################
+##################################################################################################
+##################################################################################################
+
+#Examine relationships between hypothesized drivers and early warning signal
+#response variables
+
+###################################################################
+#examine relationship between decadal climate oscillations and EWS#
+###################################################################
+
+#combine nao and soi
+closi = merge(nao, soi, by.x = "Year", by.y = "YEAR")
+
+#combine closi with amo 
+clos = merge(closi, amo, by = "Year")
+
+#subset columns and rename
+clo = clos[ , c("Year", "NAO", "AVG", "AMO")]
+names(clo) = c("year", "nao", "soi", "amo")
+
+#combine clo with dat.sub
+datclo = merge(clo, dat.sub, by.x = "year", by.y = "Year")
+
+#sort by variable and year
+datclo = datclo[order(datclo$var, datclo$year), ]
+
+#subset to only include response variables of interest
+dat.res = datclo[ , c("sd", "ac", "sk", "kt")]
+
+#subset to only include driver variables of interest
+dat.driv = datclo[ , c("soi", "nao", "amo")]
+
+#select start and end rows to run correlations for each variable in turn
+#by omitting duplicate variables from the beginning and the end of datclo
+start.rows = !duplicated(datclo$var)
+end.rows = !duplicated(datclo$var, fromLast = TRUE)
+
+#extract original row indexes associated with the start and end of unique state variable
+sr.ind = seq_along(datclo$var)[start.rows]
+er.ind = seq_along(datclo$var)[end.rows]
+
+#check that the number of events is the same for the start and end
+print(length(sr.ind))
+print(length(er.ind))
+
+#create containers to hold results of correlation tests 
+cat = list()
+var = list()
+X_sds = list()
+Y_sds = list()
+pval = list()
+tau = list()
+
+#analyze correlations between hypothesized driver and response variables
+for (h in seq(1,length(sr.ind))) {
+  
+  #subset dat.driv
+  driv.sub = dat.driv[sr.ind[h]:er.ind[h], ]
+  
+  #subset dat.res
+  res.sub = dat.res[sr.ind[h]:er.ind[h], ]
+  
+  for(i in 1:ncol(driv.sub)){
+    for(j in 1:ncol(res.sub)){
+      
+      driv = driv.sub[[i]]
+      res = res.sub[[j]]
+      
+      df = data.frame(driv, res)
+      
+      cat = c(cat, unique(datclo[sr.ind[h]:er.ind[h], ]$cat))
+      var = c(var, unique(datclo[sr.ind[h]:er.ind[h], ]$var))
+      
+      X_sds = append(X_sds, colnames(driv.sub)[i])
+      Y_sds = append(Y_sds, colnames(res.sub)[j])
+      pval = append(pval, Kendall(df$res, df$driv)[[2]][1])
+      tau = append(tau, Kendall(df$res, df$driv)[[1]][1])
+      
+    }
+  }
+}
+
+#extract correlation results
+cat = unlist(cat)
+var = unlist(var)
+xvs = unlist(X_sds)
+yvs = unlist(Y_sds)
+pvs = as.numeric(unlist(pval))
+tas = as.numeric(unlist(tau))
+
+#combine results into dataframe  
+allclo = data.frame(cbind(pvs, tas))
+names(allclo) = c("pval", "tau")
+allclo$cat = cat
+allclo$var = var
+allclo$xvs = xvs
+allclo$yvs = yvs
+
+#adjust p-values for multiple comparisons
+allclo$padj = p.adjust(allclo$pval, method = "fdr")
+
+#plot the distribution of p-values showing the correlation between climate oscillations and EWS
+#and write to folder
+
+#redefine and rename variables for plotting in the order you want
+allclo$yvs2 = ifelse(allclo$yvs == "sd", "A",
+                   ifelse(allclo$yvs == "ac", "B",
+                          ifelse(allclo$yvs == "sk", "C",
+                                 ifelse(allclo$yvs == "kt", "D", NA
+                                 ))))
+
+allclo$yvs2 = factor(allclo$yvs2, levels = c("A", "B", "C", "D"), 
+                   labels = c("SD", "AC", "SK", "KT"))
 
 
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
+#call pdf options
+pdf.options(width= 4.5, height= 4.5, paper="letter", pointsize=10)
 
-#merge micyear.ews output with actual years in timeseries
-BIOC.ewst = merge(BIOC.sub, BIOC.ews, by.x = "timeindex", by.y =  "timeindex")
+#name pdf export file
+pdf(file="EWS Summary Figures\\Figure_S4.pdf")
 
-#write table to folder
-write.table(BIOC.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\BIOC_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
+plotpval = ggplot(allclo, aes(x = padj))+
+  xlim(c(0,1))+
+  geom_density(alpha = 0.5)+
+  geom_vline(xintercept = 0.05, linetype = 2, colour = "red")+
+  labs(x = "Adjusted P-Value", y = "Density") +
+  ylab("Density")
+plotpval + facet_wrap(vars(yvs2))
+
+dev.off()
+
+########################################################################################
+#examine relationship between climate and precipitation chemistry drivers and responses#
+########################################################################################
+
+#combine original concentration and flux data from each watershed into single dataframes
+volwt = rbind(ws1_volwt, ws2_volwt, ws4_volwt, ws5_volwt, ws6_volwt)
+flux = rbind(ws1_flux, ws2_flux, ws4_flux, ws5_flux, ws6_flux)
+
+#combine volwt, flux, and dat.sub with clim and prec
+volwt.c = merge(volwt, clim, by = "WaterYear")
+volwt.cp = merge(volwt.c, ws6prcp, by = "WaterYear")
+
+flux.c = merge(flux, clim, by = "WaterYear")
+flux.cp = merge(flux.c, ws6prcp, by = "WaterYear")
+
+dat.sub.c = merge(dat.sub, clim, by.x = "Year", by.y = "WaterYear")
+dat.cp = merge(dat.sub.c, ws6prcp, by.x = "Year", by.y = "WaterYear")
+
+#sort by variable and year
+dat.cp = dat.cp[order(dat.cp$var, dat.cp$Year), ]
+
+#subset to only include response variables of interest
+dat.res = dat.cp[ , c("sd", "ac", "sk", "kt")]
+
+#subset to only include driver variables of interest
+dat.driv = dat.cp[ , c("TMEAN", "PRCP", "volwt_pH", "ANC", "NH4_flux",
+                   "SO4_flux", "NO3_flux", "totN")]
+
+#select start and end rows to run correlations for each variable in turn
+#by omitting duplicate variables from the beginning and the end of dat.cp
+start.rows = !duplicated(dat.cp$var)
+end.rows = !duplicated(dat.cp$var, fromLast = TRUE)
+
+#extract original row indexes associated with the start and end of unique state variable
+sr.ind = seq_along(dat.cp$var)[start.rows]
+er.ind = seq_along(dat.cp$var)[end.rows]
+
+#check that the number of events is the same for the start and end
+print(length(sr.ind))
+print(length(er.ind))
+
+#create containers to hold results of correlation tests 
+cat = list()
+var = list()
+X_sds = list()
+Y_sds = list()
+pval = list()
+tau = list()
+
+#analyze correlations between hypothesized driver and response variables
+for (h in seq(1,length(sr.ind))) {
+  
+  #subset dat.driv
+  driv.sub = dat.driv[sr.ind[h]:er.ind[h], ]
+  
+  #subset dat.res
+  res.sub = dat.res[sr.ind[h]:er.ind[h], ]
+  
+
+for(i in 1:ncol(driv.sub)){
+  for(j in 1:ncol(res.sub)){
+    
+    driv = driv.sub[[i]]
+    res = res.sub[[j]]
+    
+    df = data.frame(driv, res)
+    
+    cat = append(cat, unique(dat.cp[sr.ind[h]:er.ind[h], ]$cat))
+    var = append(var, unique(dat.cp[sr.ind[h]:er.ind[h], ]$var))
+    
+    X_sds = append(X_sds, colnames(driv.sub)[i])
+    Y_sds = append(Y_sds, colnames(res.sub)[j])
+    pval = append(pval, Kendall(df$res, df$driv)[[2]][1])
+    tau = append(tau, Kendall(df$res, df$driv)[[1]][1])
+    
+  }
+}
+}
+  
+#extract correlation results
+cat = unlist(cat)
+var = unlist(var)
+xvs = unlist(X_sds)
+yvs = unlist(Y_sds)
+pvs = as.numeric(unlist(pval))
+tas = as.numeric(unlist(tau))
+
+#combine results into dataframe  
+allregs = data.frame(cbind(pvs, tas))
+names(allregs) = c("pval", "tau")
+allregs$cat = cat
+allregs$var = var
+allregs$xvs = xvs
+allregs$yvs = yvs
+
+#adjust p-values for multiple comparisons
+allregs$pval = p.adjust(allregs$pval, method = "fdr")
+
+#add columns to dr.cors.1 for formatting final manuscript table
+varnames = data.frame(matrix(vector(), nrow = 31, ncol = 2))
+names(varnames) = c("vars", "nums")
+
+#create vector with variable names in the order you want them to appear in tabs2
+varnames$vars = c("ws1_volwt_Ca", "ws2_volwt_Ca", "ws4_volwt_Ca", "ws5_volwt_Ca", "ws6_volwt_Ca", 
+                  "ws1_volwt_NO3", "ws2_volwt_NO3", "ws4_volwt_NO3", "ws5_volwt_NO3", "ws6_volwt_NO3", 
+                  "ws1_flux_Ca", "ws2_flux_Ca",  "ws4_flux_Ca", "ws5_flux_Ca", "ws6_flux_Ca",
+                  "ws1_flux_NO3", "ws2_flux_NO3",  "ws4_flux_NO3", "ws5_flux_NO3", "ws6_flux_NO3",
+                  "BIOC", "BION",
+                  "lepyear", "FAGR", "ACSA",
+                  "annamre", "annbtbw", "annbtgw", "annlefl", "annoven", "annrevi")
+
+
+#add index number for ordering response variables as they will appear in supplemental table
+varnames$nums = c(1:31)
+
+#merge varnames with allregs
+tabs3 = merge(allregs, varnames, by.x = "var", by.y = "vars")
+
+#reconfigure table to make it easier to put in publication format
+#make separate dataframes for each driver variable
+
+#make unique ID for each variable by EWS combination for downstream dataframe merging
+tabs3$id = paste0(tabs3$var, tabs3$yvs)
+
+regTMEAN = tabs3[tabs3$xvs == "TMEAN", c("id", "var", "nums", "yvs", "pval", "tau")]
+names(regTMEAN) = c("id", "var", "nums", "yvs",  "pTMEAN", "tauTMEAN")
+
+regPRCP = tabs3[tabs3$xvs == "PRCP", c("id", "pval", "tau")]
+names(regPRCP) = c("id", "pPRCP", "tauPRCP")
+
+regpH = tabs3[tabs3$xvs == "volwt_pH", c("id", "pval", "tau")]
+names(regpH) = c("id", "ppH", "taupH")
+
+regANC = tabs3[tabs3$xvs == "ANC", c("id", "pval", "tau")]
+names(regANC) = c("id", "pANC", "tauANC")
+
+regSO4 = tabs3[tabs3$xvs == "SO4_flux", c("id", "pval", "tau")]
+names(regSO4) = c("id", "pSO4", "tauSO4")
+
+regNO3 = tabs3[tabs3$xvs == "NO3_flux", c("id", "pval", "tau")]
+names(regNO3) = c("id", "pNO3", "tauNO3")
+
+regNH4 = tabs3[tabs3$xvs == "NH4_flux", c("id", "pval", "tau")]
+names(regNH4) = c("id", "pNH4", "tauNH4")
+
+regtotN = tabs3[tabs3$xvs == "totN", c("id", "pval", "tau")]
+names(regtotN) = c("id", "ptotN", "tautotN")
+
+#merge tables together
+TMEAN_PRCP = merge(regTMEAN, regPRCP, by.x = "id", by.y = "id")
+PRCP_pH = merge(TMEAN_PRCP, regpH, by.x = "id", by.y = "id")
+pH_ANC = merge(PRCP_pH, regANC, by.x = "id", by.y = "id")
+ANC_SO4 = merge(pH_ANC, regSO4, by.x = "id", by.y = "id")
+SO4_NO3 = merge(ANC_SO4, regNO3, by.x = "id", by.y = "id")
+NO3_NH4 = merge(SO4_NO3, regNH4, by.x = "id", by.y = "id")
+regtab = merge(NO3_NH4, regtotN, by.x = "id", by.y = "id")
+
+#write regtab table to file
+write.table(regtab, "EWS Summary Tables\\EWS_regtab.csv", row.names = F, col.names = T, sep = ",")
+
+###################################################
+#Make figure of hypothesized drivers for manuscript
+#Figure S2
+#####################################################
+
+#call pdf options
+pdf.options(width= 4.5, height= 6.5, paper="letter", pointsize=10)
+
+#name pdf export file
+pdf(file="EWS Summary Figures\\Figure_S2.pdf")
+
+#set graphical parameters
+par(mfrow = c (2,1), mar = c(0.5,0.5,0.5,0.5), oma = c(5,5,5,5))
+
+plot(TMEAN ~ WaterYear, data = clim, type = "l",
+     col = "red", ylab = " ", xlab = " ", axes = F)
+axis(2, at = c(4.5, 5.5, 6.5, 7.5))
+par(new = T)
+plot(PRCP ~ WaterYear, data = clim, type = "l",
+     axes = F, col = "dodgerblue", ylab = " ", xlab = " ", lty = 2)
+axis(4, at = c(600, 900, 1200, 1500, 1800))
+box(lty = 1)
+mtext(side = 2, expression("Mean Annual Temperature ("*degree~C*")"), line = 2.5)
+mtext(side = 4, "Total Annual Precipitation (mm)", line = 2.5)
+legend("topleft", bg = "white", bty = "n", cex = 0.8, "A")
+legend("top", bg = "white", 
+       lty = c(1,2), bty = "n", cex = 0.8,
+       col = c("red", "dodgerblue"),
+       legend = c("MAT", "PRCP"))
+
+plot(volwt_pH ~ WaterYear, data = ws6prcp, type = "l",
+     col = "forestgreen", axes = F, 
+     ylab = " ", xlab = "Year", ylim = c(4, 5.6))
+axis(2, at = c(4.2, 4.6, 5.0, 5.4))
+par(new = T)
+plot(totN ~ WaterYear, data = ws6prcp, type = "l",
+     axes = F, col = "gray30", lty = 2,
+     xlab = " ", ylab = " ")
+axis(1, at = c(1965, 1980, 1995, 2010))
+axis(4, at = c(8000, 16000, 24000, 32000), lab = c(8, 16, 24, 32))
+box(lty = 1)
+mtext(side = 1, "Year", line = 2.5)
+mtext(side = 2, "Mean Annual Precipitation pH", line = 2.5)
+mtext(side = 4, "Total Annual Nitrogen Flux (kg / ha)", line = 2.5)
+legend("topleft", bg = "white", bty = "n", cex = 0.8, "B")
+legend("top", bg = "white", 
+       lty = c(1,2), bty = "n", cex = 0.8,
+       col = c("forestgreen", "gray30"),
+       legend = c("pH", "N"))
+
+dev.off()
 
 
 #####################
-#Microbial Biomass N#
+#####################
+#multivariate models#
+#####################
 #####################
 
-#add column with timeindex for merging with generic_ews output
-micyear$timeindex = c(1:nrow(micyear))
+#evaluate collinearity between predictor variables
+#by calculating the VIF (variance inflation factor)
 
-#subset to include just year and time index
-BION.sub = micyear[, c("Year", "timeindex")]
+#fit models with each predictor variable in turn as the 
+#response variable
+lm1.TMEAN = lm(TMEAN ~ PRCP + ANC + volwt_pH + SO4_flux + NO3_flux + NH4_flux + totN, data = dat.cp)
+lm1.PRCP = lm(PRCP ~ TMEAN + ANC + volwt_pH + SO4_flux + NO3_flux + NH4_flux + totN, data = dat.cp)
+lm1.ANC = lm(ANC ~ TMEAN + PRCP + volwt_pH + SO4_flux + NO3_flux + NH4_flux + totN, data = dat.cp)
+lm1.pH = lm(volwt_pH ~ TMEAN + PRCP + ANC + SO4_flux + NO3_flux + NH4_flux + totN, data = dat.cp)
+lm1.SO4 = lm(SO4_flux ~ TMEAN + PRCP + ANC + volwt_pH + NO3_flux + NH4_flux + totN, data = dat.cp)
+lm1.NO3 = lm(NO3_flux ~ TMEAN + PRCP + ANC + volwt_pH + SO4_flux + NH4_flux + totN, data = dat.cp)
+lm1.NH4 = lm(NH4_flux ~ TMEAN + PRCP + ANC + volwt_pH + SO4_flux + NO3_flux + totN, data = dat.cp)
+lm1.totN = lm(totN ~ TMEAN + PRCP + ANC + volwt_pH + SO4_flux + NO3_flux + NH4_flux, data = dat.cp)
+
+#calculate variance inflation statistic.
+vif1 = data.frame(cbind("TMEAN" = sqrt(1/(1-(summary(lm1.TMEAN)[[8]]))),
+                        "PRCP" = sqrt(1/(1-(summary(lm1.PRCP)[[8]]))),
+                        "ANC" = sqrt(1/(1-(summary(lm1.ANC)[[8]]))),
+                        "pH" = sqrt(1/(1-(summary(lm1.pH)[[8]]))),
+                        "SO4" = sqrt(1/(1-(summary(lm1.SO4)[[8]]))),
+                        "NO3" = sqrt(1/(1-(summary(lm1.NO3)[[8]]))),
+                        "NH4" = sqrt(1/(1-(summary(lm1.NH4)[[8]]))),
+                        "totN" = sqrt(1/(1-(summary(lm1.totN)[[8]])))
+))
+
+print(vif1)
+
+#TMEAN     PRCP      ANC       pH       SO4      NO3 NH4 totN
+#1.258574  2.069159  6.231187  6.734527 6.184236 Inf Inf  Inf
+
+#run models again with NH4, NO3, ANC, and SO4 removed
+lm2.TMEAN = lm(TMEAN ~ PRCP + volwt_pH +  totN, data = dat.cp)
+lm2.PRCP = lm(PRCP ~ TMEAN + volwt_pH + totN, data = dat.cp)
+lm2.pH = lm(volwt_pH ~ TMEAN + PRCP + totN, data = dat.cp)
+lm2.totN = lm(totN ~ TMEAN + PRCP +  volwt_pH, data = dat.cp)
+
+#calculate variance inflation statistic.
+vif2 = data.frame(cbind("TMEAN" = sqrt(1/(1-(summary(lm2.TMEAN)[[8]]))),
+                        "PRCP" = sqrt(1/(1-(summary(lm2.PRCP)[[8]]))),
+                        "pH" = sqrt(1/(1-(summary(lm2.pH)[[8]]))),
+                        "totN" = sqrt(1/(1-(summary(lm2.totN)[[8]])))
+))
+
+print(vif2)
+
+#TMEAN     PRCP       pH        totN
+#1.191045 1.239165 3.201352 2.979676
+
+#all vifs now < ~3
+
+####################
+####################
+#multivariate birds#
+####################
+####################
+
+#subset bird data
+bird.dr = dat.cp[dat.cp$cat == "bird", ]
+
+#subset sd, ac, sk, and kt and standardize data on a 0-1 scale
+
+#sd
+bird.sd = data.frame("amre" =  bird.dr[bird.dr$var == "annamre", ]$sd)
+bird.sd$btbw = bird.dr[bird.dr$var == "annbtbw", ]$sd
+bird.sd$btgw = bird.dr[bird.dr$var == "annbtgw", ]$sd
+bird.sd$lefl = bird.dr[bird.dr$var == "annlefl", ]$sd
+bird.sd$oven = bird.dr[bird.dr$var == "annoven", ]$sd
+bird.sd$revi = bird.dr[bird.dr$var == "annrevi", ]$sd
+
+bird.sd.zs = apply(as.matrix(bird.sd), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+#ac
+bird.ac = data.frame("amre" =  bird.dr[bird.dr$var == "annamre", ]$ac)
+bird.ac$btbw = bird.dr[bird.dr$var == "annbtbw", ]$ac
+bird.ac$btgw = bird.dr[bird.dr$var == "annbtgw", ]$ac
+bird.ac$lefl = bird.dr[bird.dr$var == "annlefl", ]$ac
+bird.ac$oven = bird.dr[bird.dr$var == "annoven", ]$ac
+bird.ac$revi = bird.dr[bird.dr$var == "annrevi", ]$ac
+
+bird.ac.zs = apply(as.matrix(bird.ac), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+#sk
+bird.sk = data.frame("amre" =  bird.dr[bird.dr$var == "annamre", ]$sk)
+bird.sk$btbw = bird.dr[bird.dr$var == "annbtbw", ]$sk
+bird.sk$btgw = bird.dr[bird.dr$var == "annbtgw", ]$sk
+bird.sk$lefl = bird.dr[bird.dr$var == "annlefl", ]$sk
+bird.sk$oven = bird.dr[bird.dr$var == "annoven", ]$sk
+bird.sk$revi = bird.dr[bird.dr$var == "annrevi", ]$sk
+
+bird.sk.zs = apply(as.matrix(bird.sk), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+#kt
+bird.kt = data.frame("amre" =  bird.dr[bird.dr$var == "annamre", ]$kt)
+bird.kt$btbw = bird.dr[bird.dr$var == "annbtbw", ]$kt
+bird.kt$btgw = bird.dr[bird.dr$var == "annbtgw", ]$kt
+bird.kt$lefl = bird.dr[bird.dr$var == "annlefl", ]$kt
+bird.kt$oven = bird.dr[bird.dr$var == "annoven", ]$kt
+bird.kt$revi = bird.dr[bird.dr$var == "annrevi", ]$kt
+
+bird.kt.zs = apply(as.matrix(bird.kt), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+
+#combine standardized ews
+bird.res.zs = rbind(bird.sd.zs, bird.ac.zs, bird.sk.zs, bird.kt.zs)
+
+#create vector with ews for downstream analysis
+ews = rep(c("SD", "AC", "SK", "KT"), 
+          each = nrow(bird.sd))
+
+#calculate z scores for driver variables
+
+#first subset driver variables to only include unique rows since drivers repeat for each variable
+bird.driv = bird.dr[bird.dr$var == "annamre", ]
+
+bird.dr.zs = data.frame(apply(as.matrix(bird.driv[, c("TMEAN", "PRCP", "volwt_pH", "totN")]), 
+        MARGIN = 2, FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T))))
+
+#######################
+#run NMDS ordinations#
+#######################
+
+#combine rows of predictor variables
+dr.zc = rbind(bird.dr.zs, bird.dr.zs, bird.dr.zs, bird.dr.zs)
+
+#determine the best dissimilarity matrix for data
+rankindex(grad = dr.zc, veg = bird.res.zs, indices = c("euc", "man", "bray", "gow", "jac", "kul"))
+#bray, jac, and kul have the same ranks
+
+#use vegdist function to create distance matrices of bird data
+BC_bird = vegdist(bird.res.zs, method = "bray")
+
+#fit NMDS ordinations using 1-5 dimensions
+bird.meta1 = metaMDS(BC_bird, k = 1, autotransform = FALSE, trace = FALSE)
+bird.meta2 = metaMDS(BC_bird, k = 2, autotransform = FALSE, trace = FALSE)
+bird.meta3 = metaMDS(BC_bird, k = 3, autotransform = FALSE, trace = FALSE)
+bird.meta4 = metaMDS(BC_bird, k = 4, autotransform = FALSE, trace = FALSE)
+bird.meta5 = metaMDS(BC_bird, k = 5, autotransform = FALSE, trace = FALSE)
+
+#extract stress values for each ordination
+stress = c(bird.meta1$stress, bird.meta2$stress, bird.meta3$stress, bird.meta4$stress, bird.meta5$stress)
+dimen = c(1, 2, 3, 4, 5)
+#creates a scree plot for stress
+plot(dimen, stress, type = "l")
+abline(0.1, 0)
+#ordination gets below 0.1 at k = 3 dimensions
+
+#make NMDS object into ordination plots
+ordi.bird = ordiplot(bird.meta3)
+
+
+#make NMDS objects into dataframes, and then add ews information
+nmds.bird.df = data.frame(NMDS1 = ordi.bird$sites[,1], NMDS2 =ordi.bird$sites[,2]) #site = rows in the data
+nmds.bird.ews = cbind(ews, nmds.bird.df) 
+nmds.bird.ews$ews2 = ifelse(nmds.bird.ews$ews == "AC", 2,
+                            ifelse(nmds.bird.ews$ews == "KT", 4,
+                                   ifelse(nmds.bird.ews$ews == "SD", 1,
+                                          ifelse(nmds.bird.ews$ews == "SK", 3, NA))))
+
+
+#calculate mean values for the axes for plotting results
+NMDS1.birds = describeBy(nmds.bird.ews$NMDS1, 
+                         group = list(nmds.bird.ews$ews2),
+                         na.rm = TRUE, mat = TRUE)
+NMDS2.birds = describeBy(nmds.bird.ews$NMDS2, 
+                         group = list(nmds.bird.ews$ews2),
+                         na.rm = TRUE, mat = TRUE)   
+
+NMDS.birdp= data.frame(NMDS1 = NMDS1.birds$mean, NMDS2 = NMDS2.birds$mean, ews = NMDS1.birds$group1,
+                       NMDS1se = NMDS1.birds$se, NMDS2se = NMDS2.birds$se)
+
+######################################################
+#envfit to examine gradients in environmental drivers#
+######################################################
+
+#run envfit
+envfit.bird = envfit(bird.meta3, dr.zc, perms = 999, na.rm = T)
+
+#extract scores 
+bird.vecs = as.data.frame(scores(envfit.bird, display = "vectors")) 
+bird.vecs$pvals = envfit.bird$vectors$pvals
+bird.vecs$r2 = envfit.bird$vectors$r
+
+#scale for plotting. This can be adjusted a lot
+bird.vecs$axis1 = bird.vecs$NMDS1 * 0.09
+bird.vecs$axis2 = bird.vecs$NMDS2 * 0.09
+
+#create labels for the ordination plot
+bird.vecs$label1 = c(" ", " ", " ", "Total N")
+bird.vecs$label2 = c(" ", "Prcp", "pH", " ")
+bird.vecs$label3 = c("MAT", " ", " ", " ")
+
+#factorize and relevel the ews names so they
+#show up in the right order on the plot
+NMDS.birdp$ews = factor(NMDS.birdp$ews, levels = c(1, 2, 3, 4), labels =  c("Standard Deviation", "Autocorrelation", "Skewness", "Kurtosis"))
+
+names(NMDS.birdp)[names(NMDS.birdp) == "ews"] <- "Signal"
+
+#create ordination plot
+
+#note that some of the arguments customizing color have been commented out. The new version of ggplot2 does not
+#like them
+
+bird.ord = ggplot(NMDS.birdp, aes(x=NMDS1, y = NMDS2, color = Signal, fill = Signal,
+                                  shape = Signal))+
+  geom_point(size = 4)+#aes(size = ews2), shape = c(21, 22, 23, 24),
+  geom_vline(xintercept = 0, color = "red", linetype = 2)+
+  geom_hline(yintercept = 0, color = "red", linetype = 2)+
+  scale_x_continuous(
+    labels = c("-0.06", "0.00", "0.06", "0.12"), breaks = c(-0.06, 0, 0.06, 0.12)) +
+  scale_y_continuous(
+    labels = c("-0.06", "0.00", "0.06", "0.12"), breaks = c(-0.06, 0.00, 0.06, 0.12)) +
+  scale_shape_manual(values = c(21, 22, 23, 24)) +
+  geom_errorbar(aes(ymax=NMDS2+NMDS2se, ymin=NMDS2-NMDS2se), width = 0)+
+  geom_errorbarh(aes(xmax=NMDS1+NMDS1se, xmin=NMDS1-NMDS1se), height = 0)+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  theme(axis.text.x = element_text(family="sans", size = 12, color = "black"))+
+  theme(axis.text.y = element_text(family="sans", size = 12, color = "black"))+
+  theme(axis.title.x = element_text(family="sans", size = 12, color = "black"))+
+  theme(axis.title.y = element_text(family="sans", size = 12, color = "black"))+
+  labs(x = "NMDS1 (stress = 0.13)", y = "NMDS2")+
+  #guides(
+  #  fill = guide_legend(title = "Early Warning Signal", override.aes = list(shape = c(21, 22, 23, 24))))+
+  #theme(legend.position = "bottom") +
+  annotate("segment", x = rep(0, 4), y = rep(0,4), xend = bird.vecs$axis1, yend = bird.vecs$axis2,
+           arrow = arrow(length=unit(0.025, 'npc')))+ #npc is for changing arrowhead size and the value changes that size
+  annotate("text", x = (bird.vecs$axis1 - 0.02), y = (1.5 * bird.vecs$axis2), label = bird.vecs$label1)+
+  annotate("text", x = (bird.vecs$axis1 - 0.01), y = (1.1 * bird.vecs$axis2), label = bird.vecs$label2)+
+  annotate("text", x = (bird.vecs$axis1 + 0.02), y = (-0.01 + bird.vecs$axis2), label = bird.vecs$label3)+
+  annotate("text", x = -0.12, y = 0.14, label = "Bird\nAbundance", fontface = "bold", hjust = 0)
+
+####################
+####################
+#multivariate trees#
+####################
+####################
+
+#subset tree data
+tree.dr = dat.cp[dat.cp$cat == "bai", ]
+
+#subset sd, ac, sk, and kt and standardize data on a 0-1 scale
+
+#sd
+tree.sd = data.frame("ACSA" =  tree.dr[tree.dr$var == "ACSA", ]$sd)
+tree.sd$FAGR = tree.dr[tree.dr$var == "FAGR", ]$sd
+
+tree.sd.zs = apply(as.matrix(tree.sd), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+#ac
+tree.ac = data.frame("ACSA" =  tree.dr[tree.dr$var == "ACSA", ]$ac)
+tree.ac$FAGR = tree.dr[tree.dr$var == "FAGR", ]$ac
+
+tree.ac.zs = apply(as.matrix(tree.ac), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+#sk
+tree.sk = data.frame("ACSA" =  tree.dr[tree.dr$var == "ACSA", ]$sk)
+tree.sk$FAGR = tree.dr[tree.dr$var == "FAGR", ]$sk
+
+tree.sk.zs = apply(as.matrix(tree.sk), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+#kt
+tree.kt = data.frame("ACSA" =  tree.dr[tree.dr$var == "ACSA", ]$kt)
+tree.kt$FAGR = tree.dr[tree.dr$var == "FAGR", ]$kt
+
+tree.kt.zs = apply(as.matrix(tree.kt), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+#combine standardized ews
+tree.res.zs = rbind(tree.sd.zs, tree.ac.zs, tree.sk.zs, tree.kt.zs)
+
+#create vector with ews for downstream analysis
+ews = rep(c("SD", "AC", "SK", "KT"), 
+          each = nrow(tree.sd))
+
+#calculate z scores for driver variables
+
+#first subset driver variables to only include unique rows since drivers repeat for each variable
+tree.driv = tree.dr[tree.dr$var == "ACSA", ]
+
+tree.dr.zs = data.frame(apply(as.matrix(tree.driv[, c("TMEAN", "PRCP", "volwt_pH", "totN")]), 
+                              MARGIN = 2, FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T))))
+
+#######################
+#run NMDS ordinations#
+#######################
+
+#determine the best dissimilarity matrix for data
+
+#combine rows of predictor variables
+dr.zc = rbind(tree.dr.zs, tree.dr.zs, tree.dr.zs, tree.dr.zs)
+
+rankindex(grad = dr.zc, veg = tree.res.zs, indices = c("euc", "man", "bray", "gow", "jac", "kul"))
+#bray, jac, and kl have the same ranks
+
+#use vegdist function to create distance matrices of basal area increment
+BC_tree = vegdist(tree.res.zs, method = "bray")
+
+#fit NMDS ordinations using 1-5 dimensions
+tree.meta1 = metaMDS(BC_tree, k = 1, autotransform = FALSE, trace = FALSE)
+tree.meta2 = metaMDS(BC_tree, k = 2, autotransform = FALSE, trace = FALSE)
+tree.meta3 = metaMDS(BC_tree, k = 3, autotransform = FALSE, trace = FALSE)
+tree.meta4 = metaMDS(BC_tree, k = 4, autotransform = FALSE, trace = FALSE)
+tree.meta5 = metaMDS(BC_tree, k = 5, autotransform = FALSE, trace = FALSE)
+
+#extract stress values for each ordination
+stress = c(tree.meta1$stress, tree.meta2$stress, tree.meta3$stress, tree.meta4$stress, tree.meta5$stress)
+dimen = c(1, 2, 3, 4, 5)
+#creates a scree plot for stress
+plot(dimen, stress, type = "l")
+abline(0.1, 0)
+#ordination goes below 0.1 with two dimensions until
+#there are four dimensions. Use tree.meta2
+#in downstream analyses
+
+#make NMDS object into ordination plots
+ordi.tree = ordiplot(tree.meta2)
+
+#make NMDS objects into dataframes, and then add ews information
+nmds.tree.df = data.frame(NMDS1 = ordi.tree$sites[,1], NMDS2 =ordi.tree$sites[,2]) #site = rows in the data
+nmds.tree.ews = cbind(ews, nmds.tree.df) 
+nmds.tree.ews$ews2 = ifelse(nmds.tree.ews$ews == "AC", 2,
+                            ifelse(nmds.tree.ews$ews == "KT", 4,
+                                   ifelse(nmds.tree.ews$ews == "SD", 1,
+                                          ifelse(nmds.tree.ews$ews == "SK", 3, NA))))
+
+
+#calculate mean values for the axes for plotting results
+NMDS1.trees = describeBy(nmds.tree.ews$NMDS1, 
+                         group = list(nmds.tree.ews$ews2),
+                         na.rm = TRUE, mat = TRUE)
+NMDS2.trees = describeBy(nmds.tree.ews$NMDS2, 
+                         group = list(nmds.tree.ews$ews2),
+                         na.rm = TRUE, mat = TRUE)   
+
+NMDS.treep= data.frame(NMDS1 = NMDS1.trees$mean, NMDS2 = NMDS2.trees$mean, ews = NMDS1.trees$group1,
+                       NMDS1se = NMDS1.trees$se, NMDS2se = NMDS2.trees$se)
+
+######################################################
+#envfit to examine gradients in environmental drivers#
+######################################################
+
+#run envfit
+envfit.tree = envfit(tree.meta2, dr.zc, perms = 999, na.rm = TRUE)
+
+#extract scores
+tree.vecs = as.data.frame(scores(envfit.tree, display = "vectors")) 
+tree.vecs$pvals = envfit.tree$vectors$pvals
+tree.vecs$r2 = envfit.tree$vectors$r
+
+#scale for plotting. This can be adjusted a lot
+tree.vecs$axis1 = tree.vecs$NMDS1 * 0.2
+tree.vecs$axis2 = tree.vecs$NMDS2 * 0.2
+
+#create labels for the ordination plot
+tree.vecs$label1 = c(" ", " ", "pH", " ")
+tree.vecs$label2 = c("MAT", "Prcp", " ", " ")
+tree.vecs$label3 = c(" ", " ", " ", "Total N")
+
+#factorize and relevel the ews names so they
+#show up in the right order on the plot
+NMDS.treep$ews = factor(NMDS.treep$ews, levels = c(1, 2, 3, 4),labels =  c("Standard Deviation", "Autocorrelation", "Skewness", "Kurtosis"))
+
+names(NMDS.treep)[names(NMDS.treep) == "ews"] <- "Signal"
+
+#create ordination plot
+tree.ord = ggplot(NMDS.treep, aes(x=NMDS1, y = NMDS2, color = Signal, fill = Signal,
+                                  shape = Signal))+
+  geom_point(size = 4)+
+  geom_vline(xintercept = 0, color = "red", linetype = 2)+
+  geom_hline(yintercept = 0, color = "red", linetype = 2)+
+  scale_y_continuous(breaks = c(-0.09, -0.03, 0.03, 0.09), labels = c("-0.09", "-0.03", "0.03", "0.09"))+
+  
+  scale_shape_manual(values = c(21, 22, 23, 24))+
+  geom_errorbar(aes(ymax=NMDS2+NMDS2se, ymin=NMDS2-NMDS2se), width = 0)+
+  geom_errorbarh(aes(xmax=NMDS1+NMDS1se, xmin=NMDS1-NMDS1se), height = 0)+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  theme(axis.text.x = element_text(family="sans", size = 12, color = "black"))+
+  theme(axis.text.y = element_text(family="sans", size = 12, color = "black"))+
+  theme(axis.title.x = element_text(family="sans", size = 12, color = "black"))+
+  theme(axis.title.y = element_text(family="sans", size = 12, color = "black"))+
+  labs(x = "NMDS1 (stress = 0.09)", y = "NMDS2")+
+  annotate("segment", x = rep(0, 4), y = rep(0,4), xend = tree.vecs$axis1, yend = tree.vecs$axis2,
+           arrow = arrow(length=unit(0.025, 'npc')))+ #npc is for changing arrowhead size and the value changes that size
+  annotate("text", x = (tree.vecs$axis1 * 1.3), y = (1 * tree.vecs$axis2), label = tree.vecs$label1)+
+  annotate("text", x = (tree.vecs$axis1 + 0.02), y = (1 * tree.vecs$axis2), label = tree.vecs$label2)+
+  annotate("text", x = (tree.vecs$axis1 - 0.01), y = (0.5 * tree.vecs$axis2), label = tree.vecs$label3)+
+  annotate("text", x = -0.08, y = 0.07, label = "Basal Area\nIncrement", fontface = "bold", hjust = 0)
+
+####################
+####################
+#multivariate concs#
+####################
+####################
+
+#subset conc data and remove records before 2003 so that all data encompass same period of record
+conc.dr = dat.cp[dat.cp$cat == "volwt_Ca" | dat.cp$cat == "volwt_NO3", ]
+conc.dr = conc.dr[conc.dr$Year >= 2003 & conc.dr$Year <= 2017, ]
+
+
+#subset sd, ac, sk, and kt and standardize data on a 0-1 scale
+
+#sd
+conc.sd = data.frame("ws1_volwt_Ca" =  conc.dr[conc.dr$var == "ws1_volwt_Ca", ]$sd)
+conc.sd$ws2_volwt_Ca = conc.dr[conc.dr$var == "ws2_volwt_Ca", ]$sd
+conc.sd$ws4_volwt_Ca = conc.dr[conc.dr$var == "ws4_volwt_Ca", ]$sd
+conc.sd$ws5_volwt_Ca = conc.dr[conc.dr$var == "ws5_volwt_Ca", ]$sd
+conc.sd$ws6_volwt_Ca = conc.dr[conc.dr$var == "ws6_volwt_Ca", ]$sd
+
+conc.sd.zs = apply(as.matrix(conc.sd), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+#ac
+conc.ac = data.frame("ws1_volwt_Ca" =  conc.dr[conc.dr$var == "ws1_volwt_Ca", ]$ac)
+conc.ac$ws2_volwt_Ca = conc.dr[conc.dr$var == "ws2_volwt_Ca", ]$ac
+conc.ac$ws4_volwt_Ca = conc.dr[conc.dr$var == "ws4_volwt_Ca", ]$ac
+conc.ac$ws5_volwt_Ca = conc.dr[conc.dr$var == "ws5_volwt_Ca", ]$ac
+conc.ac$ws6_volwt_Ca = conc.dr[conc.dr$var == "ws6_volwt_Ca", ]$ac
+
+conc.ac.zs = apply(as.matrix(conc.ac), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+
+#sk
+conc.sk = data.frame("ws1_volwt_Ca" =  conc.dr[conc.dr$var == "ws1_volwt_Ca", ]$sk)
+conc.sk$ws2_volwt_Ca = conc.dr[conc.dr$var == "ws2_volwt_Ca", ]$sk
+conc.sk$ws4_volwt_Ca = conc.dr[conc.dr$var == "ws4_volwt_Ca", ]$sk
+conc.sk$ws5_volwt_Ca = conc.dr[conc.dr$var == "ws5_volwt_Ca", ]$sk
+conc.sk$ws6_volwt_Ca = conc.dr[conc.dr$var == "ws6_volwt_Ca", ]$sk
+
+conc.sk.zs = apply(as.matrix(conc.sk), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+#kt
+conc.kt = data.frame("ws1_volwt_Ca" =  conc.dr[conc.dr$var == "ws1_volwt_Ca", ]$kt)
+conc.kt$ws2_volwt_Ca = conc.dr[conc.dr$var == "ws2_volwt_Ca", ]$kt
+conc.kt$ws4_volwt_Ca = conc.dr[conc.dr$var == "ws4_volwt_Ca", ]$kt
+conc.kt$ws5_volwt_Ca = conc.dr[conc.dr$var == "ws5_volwt_Ca", ]$kt
+conc.kt$ws6_volwt_Ca = conc.dr[conc.dr$var == "ws6_volwt_Ca", ]$kt
+
+conc.kt.zs = apply(as.matrix(conc.kt), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+
+#combine standardized ews
+conc.res.zs = rbind(conc.sd.zs, conc.ac.zs, conc.sk.zs, conc.kt.zs)
+
+#create vector with ews for downstream analysis
+ews = rep(c("SD", "AC", "SK", "KT"), 
+          each = nrow(conc.sd))
+
+#calculate z scores for driver variables
+
+#first subset driver variables to only include unique rows since drivers repeat for each variable
+conc.driv = conc.dr[conc.dr$var == "ws1_volwt_Ca", ]
+
+conc.dr.zs = data.frame(apply(as.matrix(conc.driv[, c("TMEAN", "PRCP", "volwt_pH", "totN")]), 
+                              MARGIN = 2, FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T))))
+
+######################
+#run NMDS ordinations#
+######################
+
+#determine the best dissimilarity matrix for data
+
+#combine rows of predictor variables
+dr.zc = rbind(conc.dr.zs, conc.dr.zs, conc.dr.zs, conc.dr.zs)
+
+rankindex(grad = dr.zc, veg = conc.res.zs, indices = c("euc", "man", "bray", "gow", "jac", "kul"))
+#bray, jac, and kl have similar ranks
+
+#use vegdist function to create distance matrices of foliar chemistry data
+BC_conc = vegdist(conc.res.zs, method = "bray")
+
+#fit NMDS ordinations using 1-5 dimensions
+conc.meta1 = metaMDS(BC_conc, k = 1, autotransform = FALSE, trace = FALSE)
+conc.meta2 = metaMDS(BC_conc, k = 2, autotransform = FALSE, trace = FALSE)
+conc.meta3 = metaMDS(BC_conc, k = 3, autotransform = FALSE, trace = FALSE)
+conc.meta4 = metaMDS(BC_conc, k = 4, autotransform = FALSE, trace = FALSE)
+conc.meta5 = metaMDS(BC_conc, k = 5, autotransform = FALSE, trace = FALSE)
+
+#extract stress values for each ordination
+stress = c(conc.meta1$stress, conc.meta2$stress, conc.meta3$stress, conc.meta4$stress, conc.meta5$stress)
+dimen = c(1, 2, 3, 4, 5)
+#creates a scree plot for stress
+plot(dimen, stress, type = "l")
+abline(0.1, 0)
+#ordination goes below 0.1 with three dimensions until
+#there are four dimensions. Use conc.meta3
+#in downstream analyses
+
+#make NMDS object into ordination plots
+ordi.conc = ordiplot(conc.meta3)
+
+#make NMDS objects into dataframes, and then add ews information
+nmds.conc.df = data.frame(NMDS1 = ordi.conc$sites[,1], NMDS2 =ordi.conc$sites[,2]) #site = rows in the data
+nmds.conc.ews = cbind(ews, nmds.conc.df) 
+nmds.conc.ews$ews2 = ifelse(nmds.conc.ews$ews == "AC", 2,
+                            ifelse(nmds.conc.ews$ews == "KT", 4,
+                                   ifelse(nmds.conc.ews$ews == "SD", 1,
+                                          ifelse(nmds.conc.ews$ews == "SK", 3, NA))))
+
+
+#calculate mean values for the axes for plotting results
+NMDS1.concs = describeBy(nmds.conc.ews$NMDS1, 
+                         group = list(nmds.conc.ews$ews2),
+                         na.rm = TRUE, mat = TRUE)
+NMDS2.concs = describeBy(nmds.conc.ews$NMDS2, 
+                         group = list(nmds.conc.ews$ews2),
+                         na.rm = TRUE, mat = TRUE)   
+
+NMDS.concp= data.frame(NMDS1 = NMDS1.concs$mean, NMDS2 = NMDS2.concs$mean, ews = NMDS1.concs$group1,
+                       NMDS1se = NMDS1.concs$se, NMDS2se = NMDS2.concs$se)
+
+######################################################
+#envfit to examine gradients in environmental drivers#
+######################################################
+
+#combine rows of predictor variables for fitting 
+#vectors onto the ordination
+dr.zc = rbind(conc.dr.zs, conc.dr.zs, conc.dr.zs, conc.dr.zs)
+
+#run envfit
+envfit.conc = envfit(conc.meta3, dr.zc, perms = 999, na.rm = TRUE)
+
+#extract scores
+conc.vecs = as.data.frame(scores(envfit.conc, display = "vectors")) 
+conc.vecs$pvals = envfit.conc$vectors$pvals
+conc.vecs$r2 = envfit.conc$vectors$r
+
+#scale for plotting. This can be adjusted a lot
+conc.vecs$axis1 = conc.vecs$NMDS1 * 0.05
+conc.vecs$axis2 = conc.vecs$NMDS2 * 0.05
+
+#create labels for the ordination plot
+conc.vecs$label1 = c("MAT", " ", "pH", " ")
+conc.vecs$label2 = c(" ", "Prcp", " ", " ")
+conc.vecs$label3 = c(" ", " ", " ", "Total N")
+
+#factorize and relevel the ews names so they
+#show up in the right order on the plot
+NMDS.concp$ews = factor(NMDS.concp$ews, levels = c(1, 2, 3, 4), labels =  c("Standard Deviation", "Autocorrelation", "Skewness", "Kurtosis"))
+
+names(NMDS.concp)[names(NMDS.concp) == "ews"] <- "Signal"
+
+#create ordination plot
+conc.ord = ggplot(NMDS.concp, aes(x=NMDS1, y = NMDS2, color = Signal, fill = Signal,
+                                  shape = Signal))+
+  geom_point(size = 4)+
+  geom_vline(xintercept = 0, color = "red", linetype = 2)+
+  geom_hline(yintercept = 0, color = "red", linetype = 2)+
+  scale_shape_manual(values = c(21, 22, 23, 24)) +
+  geom_errorbar(aes(ymax=NMDS2+NMDS2se, ymin=NMDS2-NMDS2se), width = 0)+
+  geom_errorbarh(aes(xmax=NMDS1+NMDS1se, xmin=NMDS1-NMDS1se), height = 0)+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  theme(axis.text.x = element_text(family="sans", size = 12, color = "black"))+
+  theme(axis.text.y = element_text(family="sans", size = 12, color = "black"))+
+  theme(axis.title.x = element_text(family="sans", size = 12, color = "black"))+
+  theme(axis.title.y = element_text(family="sans", size = 12, color = "black"))+
+  labs(x = "NMDS1 (stress = 0.07)", y = "NMDS2")+
+  annotate("segment", x = rep(0, 4), y = rep(0,4), xend = conc.vecs$axis1, yend = conc.vecs$axis2,
+           arrow = arrow(length=unit(0.025, 'npc')))+ #npc is for changing arrowhead size and the value changes that size
+  annotate("text", x = (conc.vecs$axis1 + 0.04), y = (0.8 * conc.vecs$axis2), label = conc.vecs$label1)+
+  annotate("text", x = (conc.vecs$axis1 - 0.04), y = (1 * conc.vecs$axis2), label = conc.vecs$label2)+
+  annotate("text", x = (conc.vecs$axis1 + 0.03), y = (conc.vecs$axis2 - 0.01), label = conc.vecs$label3)+
+  annotate("text", x =  0.02, y = 0.08, label = "Solute\nConcentrations", fontface = "bold", hjust = 0)
+
+#####################
+#####################
+#multivariate fluxes#
+#####################
+#####################
+
+#subset flux data and remove records before 2003 so that all data encompass same period of record
+flux.dr = dat.cp[dat.cp$cat == "flux_Ca" | dat.cp$cat == "flux_NO3", ]
+flux.dr = flux.dr[flux.dr$Year >= 2003 & flux.dr$Year <= 2017, ]
+
+#subset sd, ac, sk, and kt and standardize data on a 0-1 scale
+
+#sd
+flux.sd = data.frame("ws1_flux_Ca" =  flux.dr[flux.dr$var == "ws1_flux_Ca", ]$sd)
+flux.sd$ws2_flux_Ca = flux.dr[flux.dr$var == "ws2_flux_Ca", ]$sd
+flux.sd$ws4_flux_Ca = flux.dr[flux.dr$var == "ws4_flux_Ca", ]$sd
+flux.sd$ws5_flux_Ca = flux.dr[flux.dr$var == "ws5_flux_Ca", ]$sd
+flux.sd$ws6_flux_Ca = flux.dr[flux.dr$var == "ws6_flux_Ca", ]$sd
+
+flux.sd.zs = apply(as.matrix(flux.sd), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+#ac
+flux.ac = data.frame("ws1_flux_Ca" =  flux.dr[flux.dr$var == "ws1_flux_Ca", ]$ac)
+flux.ac$ws2_flux_Ca = flux.dr[flux.dr$var == "ws2_flux_Ca", ]$ac
+flux.ac$ws4_flux_Ca = flux.dr[flux.dr$var == "ws4_flux_Ca", ]$ac
+flux.ac$ws5_flux_Ca = flux.dr[flux.dr$var == "ws5_flux_Ca", ]$ac
+flux.ac$ws6_flux_Ca = flux.dr[flux.dr$var == "ws6_flux_Ca", ]$ac
+
+flux.ac.zs = apply(as.matrix(flux.ac), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+
+#sk
+flux.sk = data.frame("ws1_flux_Ca" =  flux.dr[flux.dr$var == "ws1_flux_Ca", ]$sk)
+flux.sk$ws2_flux_Ca = flux.dr[flux.dr$var == "ws2_flux_Ca", ]$sk
+flux.sk$ws4_flux_Ca = flux.dr[flux.dr$var == "ws4_flux_Ca", ]$sk
+flux.sk$ws5_flux_Ca = flux.dr[flux.dr$var == "ws5_flux_Ca", ]$sk
+flux.sk$ws6_flux_Ca = flux.dr[flux.dr$var == "ws6_flux_Ca", ]$sk
+
+flux.sk.zs = apply(as.matrix(flux.sk), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+#kt
+flux.kt = data.frame("ws1_flux_Ca" =  flux.dr[flux.dr$var == "ws1_flux_Ca", ]$kt)
+flux.kt$ws2_flux_Ca = flux.dr[flux.dr$var == "ws2_flux_Ca", ]$kt
+flux.kt$ws4_flux_Ca = flux.dr[flux.dr$var == "ws4_flux_Ca", ]$kt
+flux.kt$ws5_flux_Ca = flux.dr[flux.dr$var == "ws5_flux_Ca", ]$kt
+flux.kt$ws6_flux_Ca = flux.dr[flux.dr$var == "ws6_flux_Ca", ]$kt
+
+flux.kt.zs = apply(as.matrix(flux.kt), MARGIN = 2, 
+                   FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T)))
+
+
+#combine standardized ews
+flux.res.zs = rbind(flux.sd.zs, flux.ac.zs, flux.sk.zs, flux.kt.zs)
+
+#create vector with ews for downstream analysis
+ews = rep(c("SD", "AC", "SK", "KT"), 
+          each = nrow(flux.sd))
+
+#calculate z scores for driver variables
+
+#first subset driver variables to only include unique rows since drivers repeat for each variable
+flux.driv = flux.dr[flux.dr$var == "ws1_flux_Ca", ]
+
+flux.dr.zs = data.frame(apply(as.matrix(flux.driv[, c("TMEAN", "PRCP", "volwt_pH", "totN")]), 
+                              MARGIN = 2, FUN = function(X) (X - min(X, na.rm = T))/diff(range(X, na.rm = T))))
+
+######################
+#run NMDS ordinations#
+######################
+
+#determine the best dissimilarity matrix for data
+
+#combine rows of predictor variables
+dr.zc = rbind(flux.dr.zs, flux.dr.zs, flux.dr.zs, flux.dr.zs)
+
+rankindex(grad = dr.zc, veg = flux.res.zs, indices = c("euc", "man", "bray", "gow", "jac", "kul"))
+#bray, jac, and kl have the same ranks
+
+#use vegdist function to create distance matrices of foliar chemistry data
+BC_flux = vegdist(flux.res.zs, method = "bray")
+
+#fit NMDS ordinations using 1-5 dimensions
+flux.meta1 = metaMDS(BC_flux, k = 1, autotransform = FALSE, trace = FALSE)
+flux.meta2 = metaMDS(BC_flux, k = 2, autotransform = FALSE, trace = FALSE)
+flux.meta3 = metaMDS(BC_flux, k = 3, autotransform = FALSE, trace = FALSE)
+flux.meta4 = metaMDS(BC_flux, k = 4, autotransform = FALSE, trace = FALSE)
+flux.meta5 = metaMDS(BC_flux, k = 5, autotransform = FALSE, trace = FALSE)
+
+#extract stress values for each ordination
+stress = c(flux.meta1$stress, flux.meta2$stress, flux.meta3$stress, flux.meta4$stress, flux.meta5$stress)
+dimen = c(1, 2, 3, 4, 5)
+#creates a scree plot for stress
+plot(dimen, stress, type = "l")
+abline(0.1, 0)
+#ordination does not goes below 0.1 until
+#there are four dimensions. Use flux.meta3
+#in downstream analyses
+
+#make NMDS object into ordination plots
+ordi.flux = ordiplot(flux.meta3)
+
+#make NMDS objects into dataframes, and then add ews information
+nmds.flux.df = data.frame(NMDS1 = ordi.flux$sites[,1], NMDS2 =ordi.flux$sites[,2]) #site = rows in the data
+nmds.flux.ews = cbind(ews, nmds.flux.df) 
+nmds.flux.ews$ews2 = ifelse(nmds.flux.ews$ews == "AC", 2,
+                            ifelse(nmds.flux.ews$ews == "KT", 4,
+                                   ifelse(nmds.flux.ews$ews == "SD", 1,
+                                          ifelse(nmds.flux.ews$ews == "SK", 3, NA))))
+
+
+#calculate mean values for the axes for plotting results
+NMDS1.fluxs = describeBy(nmds.flux.ews$NMDS1, 
+                         group = list(nmds.flux.ews$ews2),
+                         na.rm = TRUE, mat = TRUE)
+NMDS2.fluxs = describeBy(nmds.flux.ews$NMDS2, 
+                         group = list(nmds.flux.ews$ews2),
+                         na.rm = TRUE, mat = TRUE)   
+
+NMDS.fluxp= data.frame(NMDS1 = NMDS1.fluxs$mean, NMDS2 = NMDS2.fluxs$mean, ews = NMDS1.fluxs$group1,
+                       NMDS1se = NMDS1.fluxs$se, NMDS2se = NMDS2.fluxs$se)
+
+######################################################
+#envfit to examine gradients in environmental drivers#
+######################################################
+
+#run envfit
+envfit.flux = envfit(flux.meta3, dr.zc, perms = 999, na.rm = TRUE)
+
+#extract scores
+flux.vecs = as.data.frame(scores(envfit.flux, display = "vectors")) 
+flux.vecs$pvals = envfit.flux$vectors$pvals
+flux.vecs$r2 = envfit.flux$vectors$r
+
+#scale for plotting. This can be adjusted a lot
+flux.vecs$axis1 = flux.vecs$NMDS1 * 0.18
+flux.vecs$axis2 = flux.vecs$NMDS2 * 0.18
+
+#create labels for the ordination plot
+flux.vecs$label1 = c("MAT", " ", "pH", " ")
+flux.vecs$label2 = c(" ", " ", " ", "Total N")
+flux.vecs$label3 = c(" ", "Prcp", " ", " ")
+
+#factorize and relevel the ews names so they
+#show up in the right order on the plot
+NMDS.fluxp$ews = factor(NMDS.fluxp$ews, levels = c(1, 2, 3, 4), labels =  c("Standard Deviation", "Autocorrelation", "Skewness", "Kurtosis"))
+
+names(NMDS.fluxp)[names(NMDS.fluxp) == "ews"] <- "Signal"
+
+#create ordination plot
+flux.ord = ggplot(NMDS.fluxp, aes(x=NMDS1, y = NMDS2, color = Signal, fill = Signal,
+                                  shape = Signal))+
+  geom_point(size = 4)+
+  geom_vline(xintercept = 0, color = "red", linetype = 2)+
+  geom_hline(yintercept = 0, color = "red", linetype = 2)+
+  scale_shape_manual(values = c(21, 22, 23, 24)) +
+  geom_errorbar(aes(ymax=NMDS2+NMDS2se, ymin=NMDS2-NMDS2se), width = 0)+
+  geom_errorbarh(aes(xmax=NMDS1+NMDS1se, xmin=NMDS1-NMDS1se), height = 0)+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  theme(axis.text.x = element_text(family="sans", size = 12, color = "black"))+
+  theme(axis.text.y = element_text(family="sans", size = 12, color = "black"))+
+  theme(axis.title.x = element_text(family="sans", size = 12, color = "black"))+
+  theme(axis.title.y = element_text(family="sans", size = 12, color = "black"))+
+  labs(x = "NMDS1 (stress = 0.09)", y = "NMDS2")+
+  annotate("segment", x = rep(0, 4), y = rep(0,4), xend = flux.vecs$axis1, yend = flux.vecs$axis2,
+           arrow = arrow(length=unit(0.025, 'npc')))+ #npc is for changing arrowhead size and the value changes that size
+  annotate("text", x = (flux.vecs$axis1 - 0.02), y = (0.98 * flux.vecs$axis2), label = flux.vecs$label1)+
+  annotate("text", x = (flux.vecs$axis1 - 0.03), y = (1 * flux.vecs$axis2), label = flux.vecs$label2)+
+  annotate("text", x = (flux.vecs$axis1 - 0.04), y = (1 * flux.vecs$axis2), label = flux.vecs$label3)+
+  annotate("text", x = -0.12, y = 0.09, label = "Solute\nFluxes", fontface = "bold", hjust = 0)
+
+####################################
+#Create output table of all envfits#
+####################################
+
+all.vecs = data.frame(cbind("var" = c("TMEAN", "PRCP", "pH", "totN"),
+                            conc.p = conc.vecs$pvals, conc.r2 = conc.vecs$r2,
+                            flux.p = flux.vecs$pvals, flux.r2 = flux.vecs$r2,
+                            bird.p = bird.vecs$pvals, bird.r2 = bird.vecs$r2,
+                            tree.p = tree.vecs$pvals, tree.r2 = tree.vecs$r2))
+#export table
+write.table(all.vecs, "EWS Summary Tables\\allenvfits.csv", col.names = T,
+            row.names = F, sep = ",")
+
+###################################################
+#make multi-panel figure (Figure 4 for manuscript)#
+#of ordination plots#                             #
+###################################################
+
 
 #call pdf options
 pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
 
 #name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_BION.pdf")
-
-BION.ews = generic_ews(micyear$BION, winsize = 50, detrending = "gaussian",
-                       bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge micyear.ews output with actual years in timeseries
-BION.ewst = merge(BION.sub, BION.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(BION.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\BION_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-#####################################
-#####################################
-#basal area increment               #
-#####################################
-#####################################
-
-######
-#ACSA#
-######
-
-#add column with timeindex for merging with generic_ews output
-baiyear$timeindex = c(1:nrow(baiyear))
-
-#subset to include just year and time index
-ACSA.sub = baiyear[, c("YEAR", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ACSA.pdf")
-
-ACSA.ews = generic_ews(baiyear$ACSA_mean, winsize = 50, detrending = "gaussian",
-                       bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge baiyear.ews output with actual years in timeseries
-ACSA.ewst = merge(ACSA.sub, ACSA.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ACSA.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ACSA_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-######
-#FAGR#
-######
-
-#add column with timeindex for merging with generic_ews output
-baiyear$timeindex = c(1:nrow(baiyear))
-
-#subset to include just year and time index
-FAGR.sub = baiyear[, c("YEAR", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_FAGR.pdf")
-
-FAGR.ews = generic_ews(baiyear$FAGR_mean, winsize = 50, detrending = "gaussian",
-                       bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge baiyear.ews output with actual years in timeseries
-FAGR.ewst = merge(FAGR.sub, FAGR.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(FAGR.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\FAGR_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-#####################################
-#####################################
-#stream chemistry: concentration    #
-#####################################
-#####################################
-
-##################
-#Ca concentration#
-##################
-
-#########
-#Ca ws1#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws1_volwt$timeindex = c(1:nrow(ws1_volwt))
-
-#subset to include just year and time index
-ws1_volwt_Ca.sub = ws1_volwt[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws1_volwt_Ca.pdf")
-
-ws1_volwt_Ca.ews = generic_ews(ws1_volwt$volwt_Ca, winsize = 50, detrending = "gaussian",
-                       bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_volwt.ews output with actual years in timeseries
-ws1_volwt_Ca.ewst = merge(ws1_volwt_Ca.sub, ws1_volwt_Ca.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws1_volwt_Ca.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws1_volwt_Ca_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#Ca ws2#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws2_volwt$timeindex = c(1:nrow(ws2_volwt))
-
-#subset to include just year and time index
-ws2_volwt_Ca.sub = ws2_volwt[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws2_volwt_Ca.pdf")
-
-ws2_volwt_Ca.ews = generic_ews(ws2_volwt$volwt_Ca, winsize = 50, detrending = "gaussian",
-                               bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_volwt.ews output with actual years in timeseries
-ws2_volwt_Ca.ewst = merge(ws2_volwt_Ca.sub, ws2_volwt_Ca.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws2_volwt_Ca.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws2_volwt_Ca_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#Ca ws4#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws4_volwt$timeindex = c(1:nrow(ws4_volwt))
-
-#subset to include just year and time index
-ws4_volwt_Ca.sub = ws4_volwt[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws4_volwt_Ca.pdf")
-
-ws4_volwt_Ca.ews = generic_ews(ws4_volwt$volwt_Ca, winsize = 50, detrending = "gaussian",
-                               bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_volwt.ews output with actual years in timeseries
-ws4_volwt_Ca.ewst = merge(ws4_volwt_Ca.sub, ws4_volwt_Ca.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws4_volwt_Ca.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws4_volwt_Ca_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#Ca ws5#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws5_volwt$timeindex = c(1:nrow(ws5_volwt))
-
-#subset to include just year and time index
-ws5_volwt_Ca.sub = ws5_volwt[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws5_volwt_Ca.pdf")
-
-ws5_volwt_Ca.ews = generic_ews(ws5_volwt$volwt_Ca, winsize = 50, detrending = "gaussian",
-                               bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_volwt.ews output with actual years in timeseries
-ws5_volwt_Ca.ewst = merge(ws5_volwt_Ca.sub, ws5_volwt_Ca.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws5_volwt_Ca.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws5_volwt_Ca_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#Ca ws6#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws6_volwt$timeindex = c(1:nrow(ws6_volwt))
-
-#subset to include just year and time index
-ws6_volwt_Ca.sub = ws6_volwt[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws6_volwt_Ca.pdf")
-
-ws6_volwt_Ca.ews = generic_ews(ws6_volwt$volwt_Ca, winsize = 50, detrending = "gaussian",
-                               bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_volwt.ews output with actual years in timeseries
-ws6_volwt_Ca.ewst = merge(ws6_volwt_Ca.sub, ws6_volwt_Ca.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws6_volwt_Ca.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws6_volwt_Ca_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-
-##################
-#NO3 concentration#
-##################
-
-#########
-#NO3 ws1#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws1_volwt$timeindex = c(1:nrow(ws1_volwt))
-
-#subset to include just year and time index
-#only include rows where NO3 values are not NA as the generic_ews function will not run with missing values
-ws1_volwt_NO3.sub = ws1_volwt[complete.cases(ws1_volwt$volwt_NO3) , c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws1_volwt_NO3.pdf")
-
-
-ws1_volwt_cc = ws1_volwt[complete.cases(ws1_volwt$volwt_NO3), ]
-
-ws1_volwt_NO3.ews = generic_ews(ws1_volwt_cc$volwt_NO3, winsize = 50, detrending = "gaussian",
-                               bandwidth = 50, logtransform = F, interpolate = F)
-
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_volwt.ews output with actual years in timeseries
-ws1_volwt_NO3.ewst = merge(ws1_volwt_NO3.sub, ws1_volwt_NO3.ews, by.x = "timeindex", by.y =  "timeindex")
-
-ws1_volwt_NO3.ewst$WaterYear = c(1993:2018)
-
-#write table to folder
-write.table(ws1_volwt_NO3.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws1_volwt_NO3_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#NO3 ws2#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws2_volwt$timeindex = c(1:nrow(ws2_volwt))
-
-#subset to include just year and time index
-ws2_volwt_NO3.sub = ws2_volwt[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws2_volwt_NO3.pdf")
-
-ws2_volwt_NO3.ews = generic_ews(ws2_volwt$volwt_NO3, winsize = 50, detrending = "gaussian",
-                               bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_2_volwt.ews output with actual years in timeseries
-ws2_volwt_NO3.ewst = merge(ws2_volwt_NO3.sub, ws2_volwt_NO3.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws2_volwt_NO3.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws2_volwt_NO3_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#NO3 ws4#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws4_volwt$timeindex = c(1:nrow(ws4_volwt))
-
-#subset to include just year and time index
-ws4_volwt_NO3.sub = ws4_volwt[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws4_volwt_NO3.pdf")
-
-ws4_volwt_NO3.ews = generic_ews(ws4_volwt$volwt_NO3, winsize = 50, detrending = "gaussian",
-                               bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_volwt.ews output with actual years in timeseries
-ws4_volwt_NO3.ewst = merge(ws4_volwt_NO3.sub, ws4_volwt_NO3.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws4_volwt_NO3.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws4_volwt_NO3_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#NO3 ws5#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws5_volwt$timeindex = c(1:nrow(ws5_volwt))
-
-#subset to include just year and time index
-ws5_volwt_NO3.sub = ws5_volwt[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws5_volwt_NO3.pdf")
-
-ws5_volwt_NO3.ews = generic_ews(ws5_volwt$volwt_NO3, winsize = 50, detrending = "gaussian",
-                               bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_volwt.ews output with actual years in timeseries
-ws5_volwt_NO3.ewst = merge(ws5_volwt_NO3.sub, ws5_volwt_NO3.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws5_volwt_NO3.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws5_volwt_NO3_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#NO3 ws6#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws6_volwt$timeindex = c(1:nrow(ws6_volwt))
-
-#subset to include just year and time index
-#only include rows where NO3 values are not NA as the generic_ews function will not run with missing values
-ws6_volwt_NO3.sub = ws6_volwt[complete.cases(ws6_volwt$volwt_NO3) , c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws6_volwt_NO3.pdf")
-
-ws6_volwt_cc = ws6_volwt[complete.cases(ws6_volwt$volwt_NO3), ]
-
-ws6_volwt_NO3.ews = generic_ews(ws6_volwt_cc$volwt_NO3, winsize = 50, detrending = "gaussian",
-                               bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_volwt.ews output with actual years in timeseries
-ws6_volwt_NO3.ewst = merge(ws6_volwt_NO3.sub, ws6_volwt_NO3.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws6_volwt_NO3.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws6_volwt_NO3_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-
-#####################################
-#####################################
-#stream chemistry: flux    #
-#####################################
-#####################################
-
-##################
-#Ca flux#
-##################
-
-#########
-#Ca ws1#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws1_flux$timeindex = c(1:nrow(ws1_flux))
-
-#subset to include just year and time index
-ws1_flux_Ca.sub = ws1_flux[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws1_flux_Ca.pdf")
-
-ws1_flux_Ca.ews = generic_ews(ws1_flux$Ca_flux, winsize = 50, detrending = "gaussian",
-                               bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_flux.ews output with actual years in timeseries
-ws1_flux_Ca.ewst = merge(ws1_flux_Ca.sub, ws1_flux_Ca.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws1_flux_Ca.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws1_flux_Ca_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#Ca ws2#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws2_flux$timeindex = c(1:nrow(ws2_flux))
-
-#subset to include just year and time index
-ws2_flux_Ca.sub = ws2_flux[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws2_flux_Ca.pdf")
-
-ws2_flux_Ca.ews = generic_ews(ws2_flux$Ca_flux, winsize = 50, detrending = "gaussian",
-                               bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_flux.ews output with actual years in timeseries
-ws2_flux_Ca.ewst = merge(ws2_flux_Ca.sub, ws2_flux_Ca.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws2_flux_Ca.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws2_flux_Ca_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#Ca ws4#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws4_flux$timeindex = c(1:nrow(ws4_flux))
-
-#subset to include just year and time index
-ws4_flux_Ca.sub = ws4_flux[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws4_flux_Ca.pdf")
-
-ws4_flux_Ca.ews = generic_ews(ws4_flux$Ca_flux, winsize = 50, detrending = "gaussian",
-                               bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_flux.ews output with actual years in timeseries
-ws4_flux_Ca.ewst = merge(ws4_flux_Ca.sub, ws4_flux_Ca.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws4_flux_Ca.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws4_flux_Ca_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#Ca ws5#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws5_flux$timeindex = c(1:nrow(ws5_flux))
-
-#subset to include just year and time index
-ws5_flux_Ca.sub = ws5_flux[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws5_flux_Ca.pdf")
-
-ws5_flux_Ca.ews = generic_ews(ws5_flux$Ca_flux, winsize = 50, detrending = "gaussian",
-                               bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_flux.ews output with actual years in timeseries
-ws5_flux_Ca.ewst = merge(ws5_flux_Ca.sub, ws5_flux_Ca.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws5_flux_Ca.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws5_flux_Ca_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#Ca ws6#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws6_flux$timeindex = c(1:nrow(ws6_flux))
-
-#subset to include just year and time index
-ws6_flux_Ca.sub = ws6_flux[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws6_flux_Ca.pdf")
-
-ws6_flux_Ca.ews = generic_ews(ws6_flux$Ca_flux, winsize = 50, detrending = "gaussian",
-                               bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_flux.ews output with actual years in timeseries
-ws6_flux_Ca.ewst = merge(ws6_flux_Ca.sub, ws6_flux_Ca.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws6_flux_Ca.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws6_flux_Ca_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-
-##################
-#NO3 flux#
-##################
-
-#########
-#NO3 ws1#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws1_flux$timeindex = c(1:nrow(ws1_flux))
-
-#subset to include just year and time index
-#only include rows where NO3 values are not NA as the generic_ews function will not run with missing values
-ws1_flux_NO3.sub = ws1_flux[complete.cases(ws1_flux$NO3_flux) , c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws1_flux_NO3.pdf")
-
-
-ws1_flux_cc = ws1_flux[complete.cases(ws1_flux$NO3_flux), ]
-
-ws1_flux_NO3.ews = generic_ews(ws1_flux_cc$NO3_flux, winsize = 50, detrending = "gaussian",
-                                bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_flux.ews output with actual years in timeseries
-ws1_flux_NO3.ewst = merge(ws1_flux_NO3.sub, ws1_flux_NO3.ews, by.x = "timeindex", by.y =  "timeindex")
-ws1_flux_Ca.ewst$WaterYear = c(1993:2018)
-
-#write table to folder
-write.table(ws1_flux_NO3.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws1_flux_NO3_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#NO3 ws2#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws2_flux$timeindex = c(1:nrow(ws2_flux))
-
-#subset to include just year and time index
-ws2_flux_NO3.sub = ws2_flux[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws2_flux_NO3.pdf")
-
-ws2_flux_NO3.ews = generic_ews(ws2_flux$NO3_flux, winsize = 50, detrending = "gaussian",
-                                bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_2_flux.ews output with actual years in timeseries
-ws2_flux_NO3.ewst = merge(ws2_flux_NO3.sub, ws2_flux_NO3.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws2_flux_NO3.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws2_flux_NO3_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#NO3 ws4#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws4_flux$timeindex = c(1:nrow(ws4_flux))
-
-#subset to include just year and time index
-ws4_flux_NO3.sub = ws4_flux[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws4_flux_NO3.pdf")
-
-ws4_flux_NO3.ews = generic_ews(ws4_flux$NO3_flux, winsize = 50, detrending = "gaussian",
-                                bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_flux.ews output with actual years in timeseries
-ws4_flux_NO3.ewst = merge(ws4_flux_NO3.sub, ws4_flux_NO3.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws4_flux_NO3.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws4_flux_NO3_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#NO3 ws5#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws5_flux$timeindex = c(1:nrow(ws5_flux))
-
-#subset to include just year and time index
-ws5_flux_NO3.sub = ws5_flux[, c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws5_flux_NO3.pdf")
-
-ws5_flux_NO3.ews = generic_ews(ws5_flux$NO3_flux, winsize = 50, detrending = "gaussian",
-                                bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_flux.ews output with actual years in timeseries
-ws5_flux_NO3.ewst = merge(ws5_flux_NO3.sub, ws5_flux_NO3.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws5_flux_NO3.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws5_flux_NO3_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
-
-#########
-#NO3 ws6#
-#########
-
-#add column with timeindex for merging with generic_ews output
-ws6_flux$timeindex = c(1:nrow(ws6_flux))
-
-#subset to include just year and time index
-#only include rows where NO3 values are not NA as the generic_ews function will not run with missing values
-ws6_flux_NO3.sub = ws6_flux[complete.cases(ws6_flux$NO3_flux) , c("WaterYear", "timeindex")]
-
-#call pdf options
-pdf.options(width= 6.5, height= 6.5, paper="letter", pointsize=10)
-
-#name pdf export file
-#commands for dev.copy and dev.off allow for the copying of the 
-#plot made in device 4 to the folder
-
-pdf(file="C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Figures\\EWS_ws6_flux_NO3.pdf")
-
-ws6_flux_cc = ws6_flux[complete.cases(ws6_flux$NO3_flux), ]
-
-ws6_flux_NO3.ews = generic_ews(ws6_flux_cc$NO3_flux, winsize = 50, detrending = "gaussian",
-                                bandwidth = 50, logtransform = F, interpolate = F)
-
-
-dev.copy(which = dev.list()["pdf"])
-dev.off(which = dev.list()["pdf"])
-
-#merge ws_1_flux.ews output with actual years in timeseries
-ws6_flux_NO3.ewst = merge(ws6_flux_NO3.sub, ws6_flux_NO3.ews, by.x = "timeindex", by.y =  "timeindex")
-
-#write table to folder
-write.table(ws6_flux_NO3.ewst, "C:\\Users\\alix\\Box Sync\\UNH\\Projects\\PES_LTER\\Data\\R Projects\\Hubbard-Brook-Resilience\\Early Warning Signals Tables\\ws6_flux_NO3_EWS.csv",
-            col.names = T, row.names = F, sep = ",")
-
+pdf(file="EWS Summary Figures\\Figure_4.pdf")
+
+ggarrange(conc.ord, flux.ord, bird.ord, tree.ord, 
+          labels = c("a", "b", "c", "d"),  ncol = 2, nrow = 2,
+          common.legend = T, legend = "bottom")
+          
+dev.off()
 
