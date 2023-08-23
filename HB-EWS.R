@@ -11,7 +11,7 @@
 #code developed by Dakos et al. (2015) and adapted by A Contosta
 #most recent version 5/16/2022
 
-#changes include code editing and cleaning in preparation for submitting manuscript revisions for peer review
+#changes include code editing and cleaning for manuscript currently in press in Environmental Research Letters 
 
 ################################################################################################################
 ################################################################################################################
