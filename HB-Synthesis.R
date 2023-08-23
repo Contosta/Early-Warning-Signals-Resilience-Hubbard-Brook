@@ -16,10 +16,10 @@
 #as well as p- and r2 values derived by fitting hypothesized drivers onto nonmetric multidimensional scaling (NMDS) 
 #ordinations of early warning signals (allenvfits.csv). Both output tables are located in the EWS Summary Tables folder.
 
-#code developed by Dakos et al. (2015) and adapted by A Contosta
+#code developed by A Contosta
 #most recent version 5/16/2023
 
-#changes include code editing and cleaning in preparation for submitting manuscript revisions for peer review
+#changes include code editing and cleaning for manuscript currently in press in Environmental Research Letters 
 
 ################################################################################################################
 ################################################################################################################
