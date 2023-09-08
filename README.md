@@ -15,7 +15,7 @@ Hubbard Brook Watershed Ecosystem Record (HBWatER). (2021d). Hubbard Brook Exper
 
 Hubbard Brook Watershed Ecosystem Record (HBWatER). (2021e). Hubbard Brook Experimental Forest: Chemistry of Streamwater – Monthly Fluxes, Watershed 5, 1963 - present ver 17. Environmental Data Initiative. https://doi.org/10.6073/pasta/a471b540dd141e361b137bad8fc92389 (Accessed 2021-08-05).
 
-Hubbard Brook Watershed Ecosystem Record (HBWatER). (2021f). Hubbard Brook Experimental Forest: Chemistry of Streamwater – Monthly Fluxes, Watershed 6, 1963 - present ver 17. Environmental Data Initiative. 
+Hubbard Brook Watershed Ecosystem Record (HBWatER). (2021f). Hubbard Brook Experimental Forest: Chemistry of Streamwater – Monthly Fluxes, Watershed 6, 1963 - present ver 17. Environmental Data Initiative. https://doi.org/10.6073/pasta/39887003e9c00b21953f9f5f03b558e7 (Accessed 2021-08-05).
 
 Groffman, P.M. and Martel, L. (2020). Long-term measurements of microbial biomass and activity at the Hubbard Brook Experimental Forest, 1994 - present ver 21. Environmental Data Initiative. https://doi.org/10.6073/pasta/3f608226a1ed499e8fa3cd188e70757c (Accessed 2021-08-12).
 
