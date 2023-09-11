@@ -17,7 +17,7 @@ Hubbard Brook Watershed Ecosystem Record (HBWatER). (2021e). Hubbard Brook Exper
 
 Hubbard Brook Watershed Ecosystem Record (HBWatER). (2021f). Hubbard Brook Experimental Forest: Chemistry of Streamwater – Monthly Fluxes, Watershed 6, 1963 - present ver 17. Environmental Data Initiative. https://doi.org/10.6073/pasta/39887003e9c00b21953f9f5f03b558e7 (Accessed 2021-08-05).
 
-Groffman, P.M. and Martel, L. (2020). Long-term measurements of microbial biomass and activity at the Hubbard Brook Experimental Forest, 1994 - present ver 21. Environmental Data Initiative. https://doi.org/10.6073/pasta/3f608226a1ed499e8fa3cd188e70757c (Accessed 2021-08-12).
+Groffman, P.M. and Martel, L. (2020). Long-term measurements of microbial biomass and activity at the Hubbard Brook Experimental Forest, 1994 - present ver 21. Environmental Data Initiative. https://doi.org/10.6073/pasta/87a42479bfcaaa2d3cea6dd087eba4a4 (Accessed 2021-08-12).
 
 Halman, J.M., Schaberg, P.G., Hawley, G.J., Hansen, C.F. and Fahey, T.J. (2008). Sugar maple and American beech tree cores from NuPert plots at the Hubbard Brook Experimental Forest, NH. https://www.uvm.edu/femc/dendro/project/17 (Accessed  2021-08-12).
 
